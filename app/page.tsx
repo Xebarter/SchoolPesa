@@ -1,6 +1,6 @@
 import Image from 'next/image'
 import Link from 'next/link'
-import { ArrowRight, BookOpen, Heart, School, Sparkles, Wallet } from 'lucide-react'
+import { ArrowRight, BookOpen, GraduationCap, Heart, School, Wallet } from 'lucide-react'
 import { CampaignCard } from '@/components/campaign-card'
 import { StoryCard } from '@/components/story-card'
 import { SiteShell } from '@/components/site/shell'
@@ -36,7 +36,7 @@ const flow = [
   ['Education support', School],
   ['School requirements', BookOpen],
   ['A child in school', Heart],
-  ['A future changed', Sparkles],
+  ['A future changed', GraduationCap],
 ] as const
 
 export default function Page() {
