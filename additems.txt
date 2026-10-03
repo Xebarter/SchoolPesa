@@ -1,0 +1,1605 @@
+# BUILD A COMPLETE WEB APP: SCHOOL PESA
+
+Build a modern, production-quality web application called **School Pesa**.
+
+School Pesa is an education fundraising and support platform that helps raise money to educate children and students from **nursery through university** and provide school requirements such as tuition, books, uniforms, shoes, meals, accommodation, technology and other educational needs.
+
+The platform also shows donors the impact of their contributions through **stories, photos, videos, campaigns, statistics and reports**.
+
+This should be a **real multi-page web application**, not just a landing page.
+
+Build the public website and a complete admin dashboard.
+
+---
+
+# TECHNOLOGY
+
+Use:
+
+* Next.js
+* React
+* TypeScript
+* Tailwind CSS
+* shadcn/ui
+* Lucide icons
+* Supabase-ready architecture
+* Next.js App Router
+
+Use clean, reusable React components.
+
+The application should be structured so Supabase can later be connected for:
+
+* Authentication
+* PostgreSQL database
+* Storage
+* User profiles
+* Campaigns
+* Donations
+* Beneficiaries
+* Stories
+* Gallery
+* Admin users
+
+Do not create a fake backend architecture that would be difficult to connect to Supabase.
+
+---
+
+# CORE DESIGN DIRECTION
+
+School Pesa should look:
+
+**Bright. Human. Hopeful. Modern. Trustworthy. Premium. Fast.**
+
+It should feel like a modern technology platform rather than a traditional NGO website.
+
+Use:
+
+* Bright backgrounds
+* White space
+* Strong typography
+* Clean cards
+* Beautiful photography
+* Solid colors
+* Subtle borders
+* Soft shadows
+* Rounded corners where appropriate
+* Clear CTAs
+* Modern dashboards
+* Professional charts
+* Excellent spacing
+
+Avoid:
+
+* Excessive gradients
+* Excessive animations
+* Glassmorphism everywhere
+* Huge decorative elements
+* Clutter
+* Generic NGO templates
+* Dark, gloomy interfaces
+* Excessive shadows
+* Slow visual effects
+
+Do not use gradients as a major design element.
+
+The interface should communicate:
+
+**Education + Hope + Trust + Transparency + Impact**
+
+---
+
+# BRAND
+
+Brand name:
+
+**School Pesa**
+
+Primary message:
+
+**Supporting Education. Changing Futures.**
+
+Use a clean, modern visual identity.
+
+Create a reusable color system rather than hard-coding colors into individual components.
+
+The design should work beautifully with real photography of children, schools, classrooms, books, learning activities and communities.
+
+Use image placeholders that can easily be replaced with real images.
+
+---
+
+# PUBLIC WEBSITE NAVIGATION
+
+Create a responsive navigation bar.
+
+Desktop:
+
+**Logo | Home | Campaigns | Sponsor a Child | Our Impact | Stories | About | Get Involved | DONATE**
+
+On mobile:
+
+* Hamburger menu
+* Prominent Donate button
+
+The Donate CTA should always be easy to find.
+
+---
+
+# 1. HOME PAGE
+
+Create a polished, visually compelling homepage.
+
+## Hero
+
+Headline:
+
+**Every Child Deserves a Chance to Learn.**
+
+Supporting text explaining that School Pesa connects people who want to help with children and students who need education support.
+
+Primary CTA:
+
+**Support a Child**
+
+Secondary CTA:
+
+**Explore Campaigns**
+
+Include a beautiful education-related image.
+
+Add a subtle visual fundraising statistic such as:
+
+**1,248 Children Supported**
+
+Do not present fake numbers as real data. Clearly structure them as sample/demo data that can later come from Supabase.
+
+---
+
+## Impact statistics
+
+Create four attractive statistics:
+
+* Children Supported
+* Funds Raised
+* Schools Reached
+* Campaigns Completed
+
+Use animated counters only if lightweight.
+
+---
+
+## Featured campaigns
+
+Create a responsive campaign card grid.
+
+Each card should show:
+
+* Campaign image
+* Campaign title
+* Short description
+* Education level
+* Amount raised
+* Target
+* Progress bar
+* Percentage
+* Donor count
+* Donate button
+
+Example campaigns:
+
+**Back to School 2027**
+
+**University Tuition Support**
+
+**Books for 100 Children**
+
+**School Uniforms for Primary Learners**
+
+Use sample data clearly structured for replacement with Supabase data.
+
+---
+
+# 2. HOW SCHOOL PESA WORKS
+
+Create a simple 4-step section:
+
+### 01
+
+**Find a Need**
+
+Discover children, students and education campaigns that need support.
+
+### 02
+
+**Choose How to Help**
+
+Support tuition, books, uniforms, meals, technology or other needs.
+
+### 03
+
+**Make a Contribution**
+
+Donate securely through available payment methods.
+
+### 04
+
+**See the Impact**
+
+Follow updates, stories, photographs and results.
+
+---
+
+# 3. EDUCATION SUPPORT CATEGORIES
+
+Create attractive cards for:
+
+* Nursery
+* Primary
+* Secondary
+* University
+* School Fees
+* Scholarships
+* Books
+* Uniforms
+* Meals
+* Technology
+* Accommodation
+* Emergency Education Support
+
+Each card should be clickable.
+
+---
+
+# 4. FEATURED IMPACT STORY
+
+Create a large editorial-style story section.
+
+Example:
+
+**From School Fees to a University Dream**
+
+Show:
+
+* Large image
+* Story title
+* Short story
+* Education level
+* Location
+* Read Story button
+
+Add:
+
+**Help another child like this**
+
+with a Donate CTA.
+
+---
+
+# 5. IMPACT SECTION
+
+Create a visually strong section showing:
+
+**Your contribution becomes:**
+
+Donation
+↓
+Education Support
+↓
+School Requirements
+↓
+A Child in School
+↓
+A Future Changed
+
+Use clean icons and visual connectors.
+
+---
+
+# 6. LATEST STORIES
+
+Create a responsive story card grid.
+
+Cards include:
+
+* Image
+* Category
+* Title
+* Short excerpt
+* Date
+* Read story
+
+Examples:
+
+* A New Beginning
+* From Classroom to Campus
+* What a School Bag Can Change
+* Back to School: 2027
+* A Scholarship That Changed Everything
+
+---
+
+# 7. DONOR CTA
+
+Create a strong section:
+
+**You can help a child stay in school.**
+
+Supporting text.
+
+Buttons:
+
+**Donate Now**
+
+**Sponsor a Child**
+
+---
+
+# 8. PARTNERS
+
+Create a clean logo strip for partners.
+
+Use placeholder partner logos.
+
+Make the section database-ready.
+
+---
+
+# 9. FOOTER
+
+Include:
+
+School Pesa logo/name
+
+Short description.
+
+Navigation:
+
+* About
+* Campaigns
+* Sponsor a Child
+* Impact
+* Stories
+* Get Involved
+* Donate
+
+Support:
+
+* FAQs
+* Contact
+* Privacy Policy
+* Terms
+
+Social media icons.
+
+Newsletter signup.
+
+---
+
+# CAMPAIGNS
+
+Create:
+
+`/campaigns`
+
+This should be a full campaign discovery page.
+
+Include:
+
+* Page title
+* Introductory text
+* Search
+* Filters
+* Sort
+* Campaign cards
+* Pagination
+
+Filters:
+
+* Education Level
+* Category
+* Campaign Status
+* Location
+* Funding Progress
+
+Sort options:
+
+* Newest
+* Most Urgent
+* Most Funded
+* Ending Soon
+
+---
+
+# CAMPAIGN DETAIL PAGE
+
+Create:
+
+`/campaigns/[slug]`
+
+Layout:
+
+Left/main section:
+
+* Large campaign image
+* Gallery
+* Campaign description
+* Story
+* Updates
+* Impact information
+
+Right/sidebar:
+
+* Amount raised
+* Target
+* Progress bar
+* Percentage funded
+* Donors
+* Deadline
+* Donate button
+
+Also include:
+
+* Share campaign
+* WhatsApp share
+* Facebook
+* X
+* LinkedIn
+* Copy link
+
+Below:
+
+**Campaign Updates**
+
+Timeline showing updates.
+
+Example:
+
+**School supplies delivered**
+
+"50 children received books and school bags."
+
+Include images.
+
+---
+
+# DONATION FLOW
+
+Create a polished donation experience.
+
+When user clicks Donate:
+
+Open a dedicated donation page or clean modal.
+
+The donor should choose:
+
+### Donation amount
+
+Quick amounts:
+
+UGX 20,000
+UGX 50,000
+UGX 100,000
+UGX 250,000
+
+And:
+
+**Other amount**
+
+Allow custom amount.
+
+Then:
+
+**Who would you like to support?**
+
+* This campaign
+* A specific child
+* Education support where most needed
+
+Then:
+
+### Donor information
+
+* Name
+* Email
+* Phone
+* Optional message
+
+Checkbox:
+
+**Make my donation anonymous**
+
+Donation type:
+
+* One-time
+* Monthly
+
+Then:
+
+**Continue to Payment**
+
+Create a beautiful payment-review screen.
+
+Do not build a fake payment gateway.
+
+Create a clean payment-provider abstraction/UI that can later connect to real providers.
+
+---
+
+# SPONSOR A CHILD
+
+Create:
+
+`/sponsor`
+
+Headline:
+
+**Help a Child Stay in School**
+
+Show child/beneficiary cards.
+
+Each card:
+
+* Approved image
+* First name or safe display name
+* Education level
+* General location
+* Short story
+* Support needed
+* Funding progress
+* Sponsor button
+
+Filters:
+
+* Nursery
+* Primary
+* Secondary
+* University
+
+Do not expose sensitive personal information.
+
+---
+
+# BENEFICIARY DETAIL
+
+Create:
+
+`/sponsor/[id]`
+
+Show:
+
+* Profile image
+* Story
+* Education level
+* School/program
+* General location
+* Education needs
+* Funding target
+* Amount raised
+* Progress
+* Sponsor/support button
+* Updates
+
+Include a privacy-conscious design.
+
+---
+
+# IMPACT PAGE
+
+Create:
+
+`/impact`
+
+Headline:
+
+**See What Your Support Makes Possible**
+
+Show large statistics:
+
+* Children supported
+* Schools reached
+* Scholarships funded
+* Books provided
+* Uniforms provided
+* Total funds raised
+
+Create visual charts/infographics.
+
+Create a "Where Your Money Goes" section.
+
+Show:
+
+**Funds Raised → Education Support → Children → Impact**
+
+Also show:
+
+* Completed campaigns
+* Impact stories
+* Recent activities
+
+---
+
+# STORIES
+
+Create:
+
+`/stories`
+
+A beautiful editorial layout.
+
+Filters:
+
+* Success Stories
+* Scholarships
+* School Requirements
+* Community
+* Students
+* Events
+
+Story cards with images.
+
+---
+
+# STORY DETAIL
+
+Create:
+
+`/stories/[slug]`
+
+Editorial article layout.
+
+Include:
+
+* Large hero image
+* Category
+* Title
+* Author
+* Date
+* Story content
+* Image gallery
+* Related campaign
+* Related beneficiary
+* Share buttons
+
+At the end:
+
+**Help create another story like this.**
+
+Donate CTA.
+
+---
+
+# GALLERY
+
+Create:
+
+`/gallery`
+
+Modern image gallery.
+
+Categories:
+
+* Children
+* Schools
+* Learning
+* School Supplies
+* Scholarships
+* Events
+* Communities
+
+Use responsive masonry/grid layout.
+
+Clicking an image should open a beautiful lightbox.
+
+---
+
+# NEWS / BLOG
+
+Create:
+
+`/news`
+
+Cards with:
+
+* Featured image
+* Category
+* Title
+* Date
+* Excerpt
+
+Create:
+
+`/news/[slug]`
+
+for article details.
+
+---
+
+# ABOUT
+
+Create:
+
+`/about`
+
+Sections:
+
+* Who We Are
+* Mission
+* Vision
+* Values
+* What We Do
+* Who We Support
+* How Funds Are Used
+* Leadership
+* Partners
+* Accountability
+
+---
+
+# GET INVOLVED
+
+Create:
+
+`/get-involved`
+
+Options:
+
+### Donate
+
+Support education directly.
+
+### Sponsor a Child
+
+Support a child's education.
+
+### Volunteer
+
+Give your time and skills.
+
+### Partner
+
+Work with School Pesa.
+
+### Fundraise
+
+Create or support fundraising campaigns.
+
+---
+
+# VOLUNTEER PAGE
+
+Create:
+
+`/volunteer`
+
+Application form:
+
+* Name
+* Email
+* Phone
+* Skills
+* Area of interest
+* Availability
+* Message
+
+Include success state after submission.
+
+---
+
+# EVENTS
+
+Create:
+
+`/events`
+
+Event cards.
+
+Each event:
+
+* Image
+* Name
+* Date
+* Time
+* Location
+* Description
+* Register button
+
+---
+
+# CONTACT
+
+Create:
+
+`/contact`
+
+Include:
+
+* Contact information
+* Email
+* Phone
+* Location
+* Contact form
+* Social media
+
+---
+
+# FAQ
+
+Create:
+
+`/faq`
+
+Accordion questions covering:
+
+* How donations work
+* How funds are used
+* Sponsorship
+* Campaigns
+* Payment methods
+* Receipts
+* Recurring donations
+* Privacy
+* Volunteering
+
+---
+
+# AUTHENTICATION
+
+Create polished authentication screens.
+
+Routes:
+
+`/login`
+
+`/register`
+
+`/forgot-password`
+
+Support:
+
+* Email/password
+* Google sign-in
+
+Design should feel consistent with the public website.
+
+---
+
+# DONOR DASHBOARD
+
+Create:
+
+`/dashboard`
+
+This is the logged-in donor area.
+
+Sidebar:
+
+* Overview
+* My Donations
+* My Campaigns
+* Sponsored Children
+* Receipts
+* Impact Updates
+* Profile
+* Notifications
+* Settings
+
+Dashboard overview:
+
+**Welcome back**
+
+Statistics:
+
+* Total Donated
+* Children Supported
+* Campaigns Supported
+* Active Sponsorships
+
+Recent donations table.
+
+Recent impact updates.
+
+---
+
+# MY DONATIONS
+
+Show:
+
+* Date
+* Campaign
+* Amount
+* Payment method
+* Status
+* Receipt
+
+Filters.
+
+Search.
+
+Download receipt button.
+
+---
+
+# ADMIN DASHBOARD
+
+Create a completely separate professional admin interface.
+
+Route:
+
+`/admin`
+
+The admin UI should look like a modern SaaS dashboard.
+
+Desktop sidebar:
+
+**Overview**
+
+**Campaigns**
+
+* All Campaigns
+* Create Campaign
+* Categories
+
+**Beneficiaries**
+
+* All Beneficiaries
+* Add Beneficiary
+
+**Donations**
+
+* All Donations
+* Transactions
+
+**Finance**
+
+* Allocations
+* Expenses
+* Reports
+
+**Impact**
+
+* Stories
+* Updates
+* Gallery
+
+**Content**
+
+* Pages
+* News
+* Events
+* FAQs
+
+**People**
+
+* Donors
+* Volunteers
+* Partners
+
+**Users**
+
+* Admin Users
+* Roles
+* Permissions
+
+**Settings**
+
+**Audit Logs**
+
+---
+
+# ADMIN OVERVIEW
+
+Create a polished dashboard.
+
+Top statistics:
+
+### Total Raised
+
+UGX 385M
+
+### This Month
+
+UGX 24.5M
+
+### Active Campaigns
+
+18
+
+### Children Supported
+
+1,248
+
+Again, structure these as sample data only.
+
+Charts:
+
+### Donations Over Time
+
+Line/area chart.
+
+### Donations by Campaign
+
+Bar chart.
+
+### Education Support
+
+Donut/pie chart:
+
+* Nursery
+* Primary
+* Secondary
+* University
+
+### Recent Donations
+
+Table.
+
+### Recent Campaign Activity
+
+Timeline.
+
+---
+
+# ADMIN CAMPAIGNS
+
+Create:
+
+`/admin/campaigns`
+
+Data table with:
+
+* Campaign
+* Category
+* Target
+* Raised
+* Progress
+* Donors
+* Status
+* Created
+* Actions
+
+Actions:
+
+* View
+* Edit
+* Publish
+* Pause
+* Complete
+* Archive
+
+Add:
+
+**Create Campaign**
+
+---
+
+# CREATE CAMPAIGN
+
+Form fields:
+
+* Campaign title
+* Slug
+* Short description
+* Full description
+* Category
+* Education level
+* Beneficiary
+* Location
+* Target amount
+* Start date
+* End date
+* Cover image
+* Gallery
+* Video
+* Status
+* SEO title
+* SEO description
+
+Use a professional form layout.
+
+Include autosave/draft UI where practical.
+
+---
+
+# ADMIN BENEFICIARIES
+
+Data table:
+
+* Photo
+* Name
+* Education level
+* School
+* Target
+* Raised
+* Status
+* Visibility
+* Actions
+
+Create/edit beneficiary forms.
+
+Include privacy controls:
+
+* Public profile
+* Public image
+* Display name
+* Story visibility
+
+---
+
+# ADMIN DONATIONS
+
+Create a powerful donation table.
+
+Columns:
+
+* Donor
+* Amount
+* Campaign
+* Payment method
+* Transaction ID
+* Date
+* Status
+
+Filters:
+
+* Date
+* Campaign
+* Status
+* Payment method
+
+Statuses:
+
+* Pending
+* Processing
+* Successful
+* Failed
+* Cancelled
+* Refunded
+
+---
+
+# ADMIN FINANCE
+
+Create:
+
+### Allocations
+
+Track:
+
+Donation → Campaign → Allocation → Expense → Impact
+
+### Expenses
+
+Table:
+
+* Date
+* Category
+* Campaign
+* Description
+* Amount
+* Supplier
+* Receipt
+* Status
+
+Button:
+
+**Add Expense**
+
+---
+
+# ADMIN IMPACT STORIES
+
+Create content management interface.
+
+Table:
+
+* Title
+* Category
+* Author
+* Status
+* Published
+* Views
+* Actions
+
+Create/edit story interface.
+
+Use a rich text editor placeholder/component that can later connect to a real editor.
+
+---
+
+# ADMIN GALLERY
+
+Media management interface.
+
+Features:
+
+* Upload
+* Delete
+* Search
+* Categories
+* Captions
+* Alt text
+* Related campaign
+* Related story
+
+Show media in a modern grid.
+
+---
+
+# ADMIN REPORTS
+
+Create reports dashboard.
+
+Reports:
+
+* Donations
+* Campaigns
+* Expenses
+* Beneficiaries
+* Impact
+* Donors
+
+Date filters:
+
+* Today
+* This week
+* This month
+* This year
+* Custom
+
+Buttons:
+
+**Export CSV**
+
+**Export Excel**
+
+**Generate PDF**
+
+These can initially be UI actions prepared for backend implementation.
+
+---
+
+# ADMIN USERS & ROLES
+
+Create role management.
+
+Roles:
+
+* Super Admin
+* Finance Admin
+* Campaign Manager
+* Content Manager
+* Auditor
+* Viewer
+
+Display permissions clearly.
+
+---
+
+# AUDIT LOG
+
+Create:
+
+`/admin/audit-logs`
+
+Show:
+
+* User
+* Action
+* Resource
+* Date
+* Time
+* Details
+
+Example:
+
+**John created campaign "Back to School 2027"**
+
+**Today, 10:42 AM**
+
+---
+
+# SETTINGS
+
+Create admin settings pages.
+
+Sections:
+
+### Organization
+
+* Name
+* Logo
+* Description
+* Contact
+* Address
+
+### Payments
+
+* Currency
+* Payment providers
+
+### Notifications
+
+* Email
+* SMS
+* WhatsApp
+
+### SEO
+
+* Site title
+* Site description
+* Social image
+
+### General
+
+* Maintenance mode
+* Site status
+
+---
+
+# DATABASE-READY UI
+
+Structure the frontend around real data models.
+
+Do not scatter hard-coded data throughout components.
+
+Create clean types/interfaces for:
+
+* User
+* Campaign
+* Beneficiary
+* Donation
+* PaymentTransaction
+* Story
+* GalleryItem
+* Expense
+* Event
+* Partner
+* Volunteer
+* Notification
+
+Make it easy to replace mock data with Supabase queries.
+
+---
+
+# SUPABASE PREPARATION
+
+Create a clean Supabase client structure.
+
+Prepare the application for:
+
+* Supabase Auth
+* Supabase Database
+* Supabase Storage
+
+Use environment variables.
+
+Expected variables:
+
+NEXT_PUBLIC_SUPABASE_URL
+
+NEXT_PUBLIC_SUPABASE_ANON_KEY
+
+Do not expose service-role credentials in browser code.
+
+---
+
+# RESPONSIVE DESIGN
+
+Every page must work on:
+
+* Mobile
+* Tablet
+* Laptop
+* Desktop
+* Large desktop screens
+
+Mobile is especially important.
+
+On mobile:
+
+* Navigation collapses
+* Cards become single-column
+* Tables become responsive
+* Dashboard sidebar becomes a drawer
+* Donation process remains extremely simple
+
+---
+
+# PERFORMANCE
+
+The site must be designed for speed.
+
+Use:
+
+* Next.js Server Components where appropriate
+* Optimized images
+* Lazy loading
+* Responsive image sizes
+* Minimal client-side JavaScript
+* Skeleton loaders
+* Pagination
+* Efficient rendering
+
+Do not create unnecessary animations.
+
+The site should feel instant.
+
+---
+
+# UX STATES
+
+Every major component should have:
+
+* Loading state
+* Empty state
+* Error state
+* Success state
+
+Examples:
+
+No campaigns:
+
+**No campaigns found**
+
+No donations:
+
+**Your donation history will appear here.**
+
+Payment success:
+
+**Thank you for supporting education.**
+
+---
+
+# ACCESSIBILITY
+
+Use:
+
+* Semantic HTML
+* Accessible buttons
+* Proper form labels
+* Keyboard navigation
+* Visible focus states
+* Good color contrast
+* Accessible dialogs
+* Meaningful alt text
+
+---
+
+# COMPONENT SYSTEM
+
+Create reusable components such as:
+
+* Navbar
+* Footer
+* CampaignCard
+* CampaignProgress
+* StoryCard
+* DonationForm
+* ImpactStat
+* TestimonialCard
+* PartnerLogo
+* GalleryGrid
+* SearchBar
+* FilterBar
+* DataTable
+* StatCard
+* ChartCard
+* Sidebar
+* DashboardHeader
+* Modal
+* Drawer
+* EmptyState
+* LoadingState
+* ErrorState
+* ConfirmationDialog
+
+Do not duplicate components.
+
+---
+
+# IMPORTANT VISUAL DETAILS
+
+Campaign cards should visually prioritize:
+
+1. Image
+2. Campaign title
+3. Short description
+4. Progress
+5. Amount raised / target
+6. Donate button
+
+Donation buttons should be visually prominent.
+
+Impact statistics should feel trustworthy rather than flashy.
+
+The admin dashboard should prioritize information density without becoming cluttered.
+
+---
+
+# SAMPLE CONTENT
+
+Use realistic sample content to make the application look complete.
+
+Examples:
+
+### Campaign
+
+**Back to School 2027**
+
+"Help provide school fees, uniforms and learning materials for children preparing to return to school."
+
+Target:
+
+**UGX 25,000,000**
+
+Raised:
+
+**UGX 16,850,000**
+
+---
+
+### Campaign
+
+**University Dreams**
+
+"Help students from vulnerable backgrounds continue their university education."
+
+---
+
+### Story
+
+**From a School Uniform to a University Dream**
+
+Use realistic placeholder story content.
+
+Clearly structure all sample data so it can later be replaced by Supabase data.
+
+---
+
+# IMPORTANT: DO NOT BUILD ONLY A LANDING PAGE
+
+Build the complete application experience.
+
+The initial implementation should include:
+
+* Public website
+* Campaign browsing
+* Campaign details
+* Donation interface
+* Sponsor-a-child interface
+* Stories
+* Impact
+* Gallery
+* Authentication screens
+* Donor dashboard
+* Admin dashboard
+* Admin campaign management
+* Admin beneficiary management
+* Admin donation management
+* Admin finance interface
+* Admin content management
+* Reports
+* Settings
+
+Every major page should be reachable through navigation.
+
+---
+
+# FINAL DESIGN GOAL
+
+When someone visits School Pesa, they should immediately understand:
+
+**Children need education support.**
+
+**I can help.**
+
+**I can see where my money goes.**
+
+**I can see the impact.**
+
+And when an administrator logs in, they should feel that they are operating a serious, professional fundraising and education management platform.
+
+Build School Pesa as a **bright, modern, fast, trustworthy and scalable education fundraising platform**, with a beautiful public experience and a powerful admin dashboard.
+
+Prioritize excellent UX, responsive design, reusable components, clean architecture and Supabase readiness.
