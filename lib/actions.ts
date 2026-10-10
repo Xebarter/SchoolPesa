@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { revalidatePath } from 'next/cache'
 import { getDb, syncCampaignImpact } from '@/lib/db'
 import { galleryPhoto, photoUses, replacePhotoSrc } from '@/lib/gallery-images'
+import { assertAdmin } from '@/lib/supabase/session'
 import type { CampaignStatus, CheckoutDraft, Expense, GalleryItem, Story, Volunteer } from '@/lib/types'
 
 function id(prefix: string) {
@@ -96,6 +97,7 @@ export async function createCampaign(input: {
   status: CampaignStatus
   beneficiaryId?: string
 }) {
+  await assertAdmin()
   const title = input.title.trim()
   if (!title) throw new Error('Add a campaign title.')
   const target = Math.round(Number(input.target))
@@ -139,6 +141,7 @@ export async function createCampaign(input: {
 }
 
 export async function updateCampaignStatus(campaignId: string, status: CampaignStatus) {
+  await assertAdmin()
   const result = getDb().prepare('UPDATE campaigns SET status = ? WHERE id = ?').run(status, campaignId)
   if (Number(result.changes) === 0) throw new Error('Campaign was not found.')
   syncCampaignImpact()
@@ -164,6 +167,7 @@ export async function saveBeneficiary(input: {
   storyVisible?: boolean
   status?: string
 }) {
+  await assertAdmin()
   const db = getDb()
   const story = input.story ?? input.needs
   const profile = input.publicProfile === false ? 0 : 1
@@ -186,6 +190,7 @@ export async function saveBeneficiary(input: {
 }
 
 export async function createStory(input: { title: string; body: string; category: string; status: Story['status'] }) {
+  await assertAdmin()
   const slug = input.title.toLowerCase().replace(/[^a-z0-9]+/g, '-') || id('story')
   const today = new Date().toISOString().slice(0, 10)
   getDb().prepare(`INSERT INTO stories (id, slug, title, excerpt, body, category, author, date, image, gallery, campaign_id, beneficiary_id, status, views)
@@ -198,12 +203,14 @@ export async function createStory(input: { title: string; body: string; category
 }
 
 export async function toggleStoryStatus(storyId: string, status: Story['status']) {
+  await assertAdmin()
   getDb().prepare('UPDATE stories SET status = ? WHERE id = ?').run(status, storyId)
   revalidatePath('/stories')
   revalidatePath('/admin/stories')
 }
 
 export async function createExpense(input: Omit<Expense, 'id' | 'status'> & { status?: Expense['status'] }) {
+  await assertAdmin()
   getDb().prepare('INSERT INTO expenses (id, date, category, campaign_id, description, amount, supplier, receipt, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
     id('x'), input.date, input.category, input.campaignId ?? null, input.description, input.amount, input.supplier, input.receipt, input.status ?? 'recorded',
   )
@@ -212,6 +219,7 @@ export async function createExpense(input: Omit<Expense, 'id' | 'status'> & { st
 }
 
 export async function createGalleryItem(input: Omit<GalleryItem, 'id' | 'src'>) {
+  await assertAdmin()
   getDb().prepare('INSERT INTO gallery (id, src, alt, caption, category, campaign_id, story_id) VALUES (?, ?, ?, ?, ?, ?, ?)').run(
     id('g'), '/school-pesa-hero.png', input.alt, input.caption, input.category, input.campaignId ?? null, input.storyId ?? null,
   )
@@ -233,6 +241,7 @@ function photoFileName(src: string) {
 }
 
 export async function deleteGalleryItem(itemId: string) {
+  await assertAdmin()
   const photo = galleryPhoto(itemId)
   if (!photo) throw new Error('Photo was not found.')
   const uses = photoUses(photo)
@@ -251,6 +260,7 @@ export async function deleteGalleryItem(itemId: string) {
 }
 
 export async function replaceGalleryImage(itemId: string, formData: FormData) {
+  await assertAdmin()
   const photo = galleryPhoto(itemId)
   if (!photo) throw new Error('Photo was not found.')
   const file = formData.get('photo')
@@ -312,6 +322,7 @@ export async function registerForEvent(eventName: string) {
 }
 
 export async function saveSettings(values: Record<string, string>) {
+  await assertAdmin()
   const statement = getDb().prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value')
   for (const [key, value] of Object.entries(values)) statement.run(key, value)
   audit('Super Admin', 'updated', 'Settings', 'Updated organization settings')

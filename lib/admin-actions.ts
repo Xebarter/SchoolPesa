@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache'
 import { getDb, syncCampaignImpact } from '@/lib/db'
 import { formatUGX } from '@/lib/format'
 import { alertDonor, alertFollowers } from '@/lib/notify'
+import { assertAdmin } from '@/lib/supabase/session'
 import type { CampaignStatus, Expense, Story, Volunteer } from '@/lib/types'
 
 function id(prefix: string) {
@@ -79,6 +80,7 @@ export async function updateCampaign(campaignId: string, input: {
   status: CampaignStatus
   beneficiaryId?: string
 }) {
+  await assertAdmin()
   const title = input.title.trim()
   if (!title) throw new Error('Add a campaign title.')
   const target = Math.round(Number(input.target))
@@ -118,6 +120,7 @@ export async function updateCampaign(campaignId: string, input: {
 }
 
 export async function deleteCampaign(campaignId: string) {
+  await assertAdmin()
   const db = getDb()
   const existing = db.prepare('SELECT id FROM campaigns WHERE id = ?').get(campaignId)
   if (!existing) throw new Error('Campaign was not found.')
@@ -158,6 +161,7 @@ export async function saveBeneficiary(input: {
   publicImage: boolean
   storyVisible: boolean
 }) {
+  await assertAdmin()
   const name = input.displayName.trim()
   if (!name) throw new Error('Enter the learner’s name.')
   if (!learnerLevels.has(input.level)) throw new Error('Choose an education level.')
@@ -190,6 +194,7 @@ export async function saveBeneficiary(input: {
 }
 
 export async function deleteBeneficiary(beneficiaryId: string) {
+  await assertAdmin()
   const db = getDb()
   const existing = db.prepare('SELECT display_name FROM beneficiaries WHERE id = ?').get(beneficiaryId) as { display_name: string } | undefined
   if (!existing) throw new Error('Learner was not found.')
@@ -248,6 +253,7 @@ function giftFields(input: GiftInput) {
 }
 
 export async function createAdminDonation(input: GiftInput) {
+  await assertAdmin()
   const fields = giftFields(input)
   const donationId = id('d')
   const reference = `ADM-${Date.now().toString(36).toUpperCase()}`
@@ -266,6 +272,7 @@ export async function createAdminDonation(input: GiftInput) {
 }
 
 export async function updateAdminDonation(donationId: string, input: GiftInput) {
+  await assertAdmin()
   const fields = giftFields(input)
   const db = getDb()
   const row = db.prepare('SELECT id, amount, campaign_id, beneficiary_id, status FROM donations WHERE id = ?').get(donationId) as GiftRow | undefined
@@ -281,6 +288,7 @@ export async function updateAdminDonation(donationId: string, input: GiftInput) 
 }
 
 export async function deleteAdminDonation(donationId: string) {
+  await assertAdmin()
   const db = getDb()
   const row = db.prepare('SELECT id, amount, campaign_id, beneficiary_id, status FROM donations WHERE id = ?').get(donationId) as GiftRow | undefined
   if (!row) throw new Error('Gift was not found.')
@@ -292,6 +300,7 @@ export async function deleteAdminDonation(donationId: string) {
 }
 
 export async function updateStory(storyId: string, input: { title: string; body: string; category: string; status: Story['status'] }) {
+  await assertAdmin()
   const result = getDb().prepare('UPDATE stories SET title = ?, excerpt = ?, body = ?, category = ?, status = ? WHERE id = ?').run(
     input.title, input.body.slice(0, 140), input.body, input.category, input.status, storyId,
   )
@@ -301,6 +310,7 @@ export async function updateStory(storyId: string, input: { title: string; body:
 }
 
 export async function deleteStory(storyId: string) {
+  await assertAdmin()
   const db = getDb()
   const existing = db.prepare('SELECT title FROM stories WHERE id = ?').get(storyId) as { title: string } | undefined
   if (!existing) throw new Error('Story was not found.')
@@ -326,6 +336,7 @@ export async function saveStory(input: {
   campaignId?: string
   beneficiaryId?: string
 }) {
+  await assertAdmin()
   const title = input.title.trim()
   const body = input.body.replace(/\r\n/g, '\n').trim()
   if (!title) throw new Error('Add a title.')
@@ -365,6 +376,7 @@ export async function saveStory(input: {
 }
 
 export async function setStoryStatus(storyId: string, status: string) {
+  await assertAdmin()
   if (!storyStatuses.has(status)) throw new Error('Choose a status.')
   const existing = getDb().prepare('SELECT title FROM stories WHERE id = ?').get(storyId) as { title: string } | undefined
   if (!existing) throw new Error('Story was not found.')
@@ -375,6 +387,7 @@ export async function setStoryStatus(storyId: string, status: string) {
 }
 
 export async function updateGalleryItem(itemId: string, input: { alt: string; caption: string; category: string }) {
+  await assertAdmin()
   const result = getDb().prepare('UPDATE gallery SET alt = ?, caption = ?, category = ? WHERE id = ?').run(
     input.alt, input.caption, input.category, itemId,
   )
@@ -386,6 +399,7 @@ export async function updateGalleryItem(itemId: string, input: { alt: string; ca
 const expenseStatuses = new Set(['recorded', 'approved', 'paid'])
 
 export async function saveExpense(input: Omit<Expense, 'id'> & { id?: string }) {
+  await assertAdmin()
   const description = input.description.trim()
   if (!description) throw new Error('Describe the expense.')
   const amount = Math.round(Number(input.amount))
@@ -415,6 +429,7 @@ export async function saveExpense(input: Omit<Expense, 'id'> & { id?: string }) 
 }
 
 export async function updateExpense(expenseId: string, input: Omit<Expense, 'id'>) {
+  await assertAdmin()
   const result = getDb().prepare('UPDATE expenses SET date = ?, category = ?, campaign_id = ?, description = ?, amount = ?, supplier = ?, receipt = ?, status = ? WHERE id = ?').run(
     input.date, input.category, input.campaignId ?? null, input.description, input.amount, input.supplier, input.receipt, input.status, expenseId,
   )
@@ -424,6 +439,7 @@ export async function updateExpense(expenseId: string, input: Omit<Expense, 'id'
 }
 
 export async function deleteExpense(expenseId: string) {
+  await assertAdmin()
   const result = getDb().prepare('DELETE FROM expenses WHERE id = ?').run(expenseId)
   missing(result, 'Expense')
   audit('Finance Admin', 'deleted', 'Expense', `Removed expense ${expenseId}`)
@@ -431,6 +447,7 @@ export async function deleteExpense(expenseId: string) {
 }
 
 export async function savePartner(input: { id?: string; name: string; logoUrl?: string }) {
+  await assertAdmin()
   const db = getDb()
   if (input.id) {
     const result = db.prepare('UPDATE partners SET name = ?, logo_url = ? WHERE id = ?').run(input.name, input.logoUrl || null, input.id)
@@ -444,6 +461,7 @@ export async function savePartner(input: { id?: string; name: string; logoUrl?: 
 }
 
 export async function deletePartner(partnerId: string) {
+  await assertAdmin()
   const result = getDb().prepare('DELETE FROM partners WHERE id = ?').run(partnerId)
   missing(result, 'Partner')
   audit('Super Admin', 'deleted', 'Partner', `Removed partner ${partnerId}`)
@@ -451,6 +469,7 @@ export async function deletePartner(partnerId: string) {
 }
 
 export async function saveVolunteer(input: { id?: string; name: string; email: string; phone: string; skills: string; interest: string; availability: string; message: string; status: Volunteer['status'] }) {
+  await assertAdmin()
   const db = getDb()
   if (input.id) {
     const result = db.prepare('UPDATE volunteers SET name = ?, email = ?, phone = ?, skills = ?, interest = ?, availability = ?, message = ?, status = ? WHERE id = ?').run(
@@ -468,6 +487,7 @@ export async function saveVolunteer(input: { id?: string; name: string; email: s
 }
 
 export async function deleteVolunteer(volunteerId: string) {
+  await assertAdmin()
   const result = getDb().prepare('DELETE FROM volunteers WHERE id = ?').run(volunteerId)
   missing(result, 'Volunteer')
   audit('Super Admin', 'deleted', 'Volunteer', `Removed volunteer ${volunteerId}`)
@@ -475,6 +495,7 @@ export async function deleteVolunteer(volunteerId: string) {
 }
 
 export async function saveUser(input: { id?: string; name: string; email: string; role: string; phone: string }) {
+  await assertAdmin()
   const db = getDb()
   try {
     if (input.id) {
@@ -492,6 +513,7 @@ export async function saveUser(input: { id?: string; name: string; email: string
 }
 
 export async function deleteUser(userId: string) {
+  await assertAdmin()
   const result = getDb().prepare('DELETE FROM users WHERE id = ?').run(userId)
   missing(result, 'User')
   audit('Super Admin', 'deleted', 'User', `Removed user ${userId}`)
@@ -499,6 +521,7 @@ export async function deleteUser(userId: string) {
 }
 
 export async function saveNews(input: { id?: string; title: string; excerpt: string; body: string; category: string; date: string }) {
+  await assertAdmin()
   const db = getDb()
   try {
     if (input.id) {
@@ -517,6 +540,7 @@ export async function saveNews(input: { id?: string; title: string; excerpt: str
 }
 
 export async function deleteNews(articleId: string) {
+  await assertAdmin()
   const result = getDb().prepare('DELETE FROM news WHERE id = ?').run(articleId)
   missing(result, 'Article')
   audit('Content Manager', 'deleted', 'News', `Removed article ${articleId}`)
@@ -524,6 +548,7 @@ export async function deleteNews(articleId: string) {
 }
 
 export async function saveEvent(input: { id?: string; name: string; date: string; time: string; location: string; description: string }) {
+  await assertAdmin()
   const db = getDb()
   if (input.id) {
     const result = db.prepare('UPDATE events SET name = ?, date = ?, time = ?, location = ?, description = ? WHERE id = ?').run(input.name, input.date, input.time, input.location, input.description, input.id)
@@ -538,6 +563,7 @@ export async function saveEvent(input: { id?: string; name: string; date: string
 }
 
 export async function deleteEvent(eventId: string) {
+  await assertAdmin()
   const result = getDb().prepare('DELETE FROM events WHERE id = ?').run(eventId)
   missing(result, 'Event')
   audit('Content Manager', 'deleted', 'Event', `Removed event ${eventId}`)
@@ -545,6 +571,7 @@ export async function deleteEvent(eventId: string) {
 }
 
 export async function saveFaq(input: { id?: string; question: string; answer: string; topic: string }) {
+  await assertAdmin()
   const db = getDb()
   if (input.id) {
     const result = db.prepare('UPDATE faqs SET question = ?, answer = ?, topic = ? WHERE id = ?').run(input.question, input.answer, input.topic, input.id)
@@ -557,6 +584,7 @@ export async function saveFaq(input: { id?: string; question: string; answer: st
 }
 
 export async function deleteFaq(faqId: string) {
+  await assertAdmin()
   const result = getDb().prepare('DELETE FROM faqs WHERE id = ?').run(faqId)
   missing(result, 'Question')
   audit('Content Manager', 'deleted', 'FAQ', `Removed question ${faqId}`)
@@ -564,6 +592,7 @@ export async function deleteFaq(faqId: string) {
 }
 
 export async function deleteAuditLog(logId: string) {
+  await assertAdmin()
   const result = getDb().prepare('DELETE FROM audit_logs WHERE id = ?').run(logId)
   missing(result, 'Log entry')
   touch()
@@ -636,6 +665,7 @@ function syncStory(row: ImpactRow, fields: ReturnType<typeof impactFields>, stat
 }
 
 export async function saveImpactUpdate(updateId: string, input: ImpactFields) {
+  await assertAdmin()
   const row = impactRow(updateId)
   const fields = impactFields(input)
   const storyId = row.story_id && row.status === 'published' ? syncStory(row, fields, 'published') : row.story_id
@@ -647,6 +677,7 @@ export async function saveImpactUpdate(updateId: string, input: ImpactFields) {
 }
 
 export async function requestImpactChanges(updateId: string, note: string) {
+  await assertAdmin()
   const row = impactRow(updateId)
   const message = note.trim()
   if (!message) throw new Error('Tell the donor what to change.')
@@ -660,6 +691,7 @@ export async function requestImpactChanges(updateId: string, note: string) {
 }
 
 export async function declineImpactUpdate(updateId: string, note: string) {
+  await assertAdmin()
   const row = impactRow(updateId)
   const message = note.trim()
   if (!message) throw new Error('Add a reason for declining this update.')
@@ -673,6 +705,7 @@ export async function declineImpactUpdate(updateId: string, note: string) {
 }
 
 export async function publishImpactUpdate(updateId: string, input: ImpactFields) {
+  await assertAdmin()
   const row = impactRow(updateId)
   if (row.status === 'draft') throw new Error('Wait until the donor submits this update.')
   const fields = impactFields(input)
@@ -688,6 +721,7 @@ export async function publishImpactUpdate(updateId: string, input: ImpactFields)
 }
 
 export async function unpublishImpactUpdate(updateId: string) {
+  await assertAdmin()
   const row = impactRow(updateId)
   if (row.status !== 'published' || !row.story_id) throw new Error('This update is not published.')
   const db = getDb()

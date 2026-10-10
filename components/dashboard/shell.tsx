@@ -5,8 +5,9 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useEffect, useState, type ComponentType, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { Bell, GraduationCap, LayoutDashboard, Megaphone, Menu, Newspaper, Receipt, Settings, UserRound, Wallet, X } from 'lucide-react'
+import { Bell, GraduationCap, LayoutDashboard, LogOut, Megaphone, Menu, Newspaper, Receipt, Settings, UserRound, Wallet, X } from 'lucide-react'
 import { NotificationBell } from '@/components/dashboard/notification-bell'
+import { signOut } from '@/lib/auth-client'
 import { accountInitials } from '@/lib/supabase/account'
 import type { NotificationItem } from '@/lib/types'
 import { cn } from '@/lib/utils'
@@ -110,6 +111,40 @@ function AccountCard({ name, photo }: { name: string; photo?: string }) {
   )
 }
 
+function LogoutButton({ onLogout }: { onLogout?: () => void }) {
+  const [pending, setPending] = useState(false)
+  const [error, setError] = useState('')
+
+  async function logout() {
+    if (pending) return
+    setPending(true)
+    setError('')
+    try {
+      await signOut()
+      onLogout?.()
+      window.location.assign('/')
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Could not sign out. Please try again.')
+      setPending(false)
+    }
+  }
+
+  return (
+    <div>
+      <button
+        type="button"
+        className="flex min-h-10 w-full items-center gap-3 rounded-xl px-3 text-sm font-semibold text-white/70 transition hover:bg-white/10 hover:text-white disabled:opacity-60"
+        onClick={() => void logout()}
+        disabled={pending}
+      >
+        <LogOut className="size-4 shrink-0" />
+        {pending ? 'Signing out…' : 'Log out'}
+      </button>
+      {error ? <p className="px-3 pt-2 text-xs text-red-200" role="alert">{error}</p> : null}
+    </div>
+  )
+}
+
 export function DashboardShell({ children, notifications, accountName, accountPhoto }: { children: ReactNode; notifications: NotificationItem[]; accountName: string; accountPhoto?: string }) {
   const pathname = usePathname()
   const [open, setOpen] = useState(false)
@@ -144,6 +179,7 @@ export function DashboardShell({ children, notifications, accountName, accountPh
         </div>
         <div className="p-4">
           <AccountCard name={accountName} photo={accountPhoto} />
+          <LogoutButton />
           <Link href="/" className="mt-3 block px-3 text-xs font-semibold text-white/70 hover:text-white">View public site</Link>
         </div>
       </aside>
@@ -186,6 +222,7 @@ export function DashboardShell({ children, notifications, accountName, accountPh
             </div>
             <div className="p-4">
               <AccountCard name={accountName} photo={accountPhoto} />
+              <LogoutButton onLogout={() => setOpen(false)} />
             </div>
           </div>
         </div>,
