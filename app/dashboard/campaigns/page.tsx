@@ -9,9 +9,10 @@ export default async function Page() {
   const account = await currentAccount()
   const campaigns = getCampaigns()
   const saved = account ? donorCampaigns(account.email) : []
+  const owned = account ? campaigns.filter((item) => item.ownerEmail === account.email.trim().toLowerCase()) : []
   return (
     <div className="mx-auto max-w-6xl">
-      <CampaignLinks saved={saved} campaigns={campaigns} />
+      <CampaignLinks saved={saved} campaigns={campaigns} owned={owned} />
     </div>
   )
 }

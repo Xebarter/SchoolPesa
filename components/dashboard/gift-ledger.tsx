@@ -7,7 +7,7 @@ import { ArrowRight } from 'lucide-react'
 import { StatusPill } from '@/components/admin/ui'
 import { GiftForm } from '@/components/dashboard/gift-form'
 import { Input, Select } from '@/components/ui/input'
-import { deleteDonationRecord, updateDonationMessage } from '@/lib/donor-actions'
+import { deleteDonationRecord, retryDonation, updateDonationMessage } from '@/lib/donor-actions'
 import { formatDate, formatUGX } from '@/lib/format'
 import type { Beneficiary, Campaign, Donation } from '@/lib/types'
 
@@ -69,6 +69,20 @@ export function GiftLedger({
     }
   }
 
+  async function repay(item: Donation) {
+    setError('')
+    setNotice('')
+    setPendingId(item.id)
+    try {
+      await retryDonation(item.id)
+      router.refresh()
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'The payment could not be started.')
+    } finally {
+      setPendingId(null)
+    }
+  }
+
   async function remove(id: string) {
     setError('')
     setNotice('')
@@ -91,7 +105,6 @@ export function GiftLedger({
         <div className="max-w-xl">
           <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-brand">Your gifts</p>
           <h1 className="mt-3 text-4xl font-semibold tracking-[-.045em] text-ink sm:text-5xl">Donations</h1>
-          <p className="mt-3 max-w-md text-sm leading-6 text-sage">Every gift on this account, with its status, note and receipt.</p>
         </div>
         <div className="flex shrink-0 flex-wrap gap-2">
           <button type="button" className="inline-flex h-11 items-center rounded-full border border-line bg-white px-4 text-sm font-semibold text-forest hover:border-forest" aria-expanded={composing} onClick={() => setComposing((value) => !value)}>
@@ -135,7 +148,6 @@ export function GiftLedger({
         {rows.length === 0 ? (
           <div className="px-5 py-14 text-center">
             <p className="text-lg font-semibold tracking-tight text-ink">{donations.length === 0 ? 'No gifts on this account yet.' : 'Nothing matches these filters.'}</p>
-            <p className="mx-auto mt-2 max-w-sm text-sm leading-6 text-sage">{donations.length === 0 ? 'Give from your phone, or record a pending gift to keep the intention here.' : 'Clear a filter to see the rest of your gifts.'}</p>
             {donations.length === 0 ? <Link href="/donate" className="mt-5 inline-flex h-11 items-center rounded-full bg-brand px-5 text-sm font-semibold text-white hover:bg-brand-deep">Give now</Link> : (
               <button type="button" className="mt-5 text-sm font-semibold text-forest" onClick={() => { setQuery(''); setStatus(''); setMethod('') }}>Clear filters</button>
             )}
@@ -159,6 +171,11 @@ export function GiftLedger({
                         <p className="text-sm font-semibold text-ink">{formatUGX(item.amount)}</p>
                         <div className="mt-1"><StatusPill value={item.status} /></div>
                       </div>
+                      {(item.status === 'Failed' || item.status === 'Cancelled') ? (
+                        <button type="button" className="rounded-full bg-forest px-3 py-1.5 text-xs font-semibold text-white hover:bg-brand-deep disabled:opacity-50" disabled={busy} onClick={() => void repay(item)}>
+                          {busy ? 'Sending…' : 'Pay again'}
+                        </button>
+                      ) : null}
                       <button type="button" className="text-xs font-semibold text-forest" aria-expanded={open} onClick={() => { setOpenId(open ? null : item.id); setConfirming(null) }}>
                         {open ? 'Close' : 'Details'}
                       </button>
@@ -174,9 +191,7 @@ export function GiftLedger({
                         <button type="button" className="text-sm font-semibold text-forest disabled:opacity-50" disabled={busy} onClick={() => void saveNote(item)}>{busy && confirming !== item.id ? 'Saving…' : 'Save note'}</button>
                         {item.status === 'Successful' ? (
                           <a className="text-sm font-semibold text-ink" href={`/api/payments/receipt?reference=${encodeURIComponent(item.transactionId)}`}>Download receipt</a>
-                        ) : (
-                          <p className="text-xs text-sage">A receipt is ready once this gift is confirmed.</p>
-                        )}
+                        ) : null}
                         {confirming === item.id ? (
                           <span className="flex items-center gap-3 text-sm">
                             <span className="text-sage">Remove this gift?</span>

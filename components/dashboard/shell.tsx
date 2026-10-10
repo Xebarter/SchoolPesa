@@ -6,6 +6,7 @@ import { usePathname } from 'next/navigation'
 import { useEffect, useState, type ComponentType, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { Bell, GraduationCap, LayoutDashboard, Megaphone, Menu, Newspaper, Receipt, Settings, UserRound, Wallet, X } from 'lucide-react'
+import { NotificationBell } from '@/components/dashboard/notification-bell'
 import { accountInitials } from '@/lib/supabase/account'
 import type { NotificationItem } from '@/lib/types'
 import { cn } from '@/lib/utils'
@@ -95,10 +96,12 @@ function Brand() {
   )
 }
 
-function AccountCard({ name }: { name: string }) {
+function AccountCard({ name, photo }: { name: string; photo?: string }) {
   return (
     <div className="flex items-center gap-3 px-3 py-3">
-      <span className="grid size-9 shrink-0 place-items-center rounded-full bg-brand text-xs font-semibold text-white">{accountInitials(name)}</span>
+      <span className="grid size-9 shrink-0 place-items-center overflow-hidden rounded-full bg-brand text-xs font-semibold text-white">
+        {photo ? <img src={photo} alt="" referrerPolicy="no-referrer" className="size-full object-cover" /> : accountInitials(name)}
+      </span>
       <span className="min-w-0">
         <span className="block truncate text-sm font-semibold text-white">{name}</span>
         <span className="block text-xs text-white/50">Donor</span>
@@ -107,7 +110,7 @@ function AccountCard({ name }: { name: string }) {
   )
 }
 
-export function DashboardShell({ children, notifications, accountName }: { children: ReactNode; notifications: NotificationItem[]; accountName: string }) {
+export function DashboardShell({ children, notifications, accountName, accountPhoto }: { children: ReactNode; notifications: NotificationItem[]; accountName: string; accountPhoto?: string }) {
   const pathname = usePathname()
   const [open, setOpen] = useState(false)
   const title = titles[pathname] ?? 'Dashboard'
@@ -140,7 +143,7 @@ export function DashboardShell({ children, notifications, accountName }: { child
           <Nav unread={unread} />
         </div>
         <div className="p-4">
-          <AccountCard name={accountName} />
+          <AccountCard name={accountName} photo={accountPhoto} />
           <Link href="/" className="mt-3 block px-3 text-xs font-semibold text-white/70 hover:text-white">View public site</Link>
         </div>
       </aside>
@@ -161,6 +164,7 @@ export function DashboardShell({ children, notifications, accountName }: { child
             <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-sage">Donor</p>
             <p className="truncate text-sm font-semibold text-ink">{title}</p>
           </div>
+          <NotificationBell items={notifications} />
           <Link href="/" className="hidden bg-mist px-3 py-1.5 text-xs font-semibold text-forest hover:bg-forest hover:text-white sm:inline-flex">View site</Link>
           <Link href="/donate" className="rounded-full bg-forest px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-brand-deep">Donate</Link>
         </header>
@@ -181,7 +185,7 @@ export function DashboardShell({ children, notifications, accountName }: { child
               <Nav unread={unread} onNavigate={() => setOpen(false)} />
             </div>
             <div className="p-4">
-              <AccountCard name={accountName} />
+              <AccountCard name={accountName} photo={accountPhoto} />
             </div>
           </div>
         </div>,

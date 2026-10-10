@@ -1,4 +1,4 @@
-import { accountName } from '@/lib/supabase/account'
+import { accountName, accountPhoto } from '@/lib/supabase/account'
 import { createServerClient } from '@/lib/supabase/server'
 
 export async function currentAccount() {
@@ -12,5 +12,8 @@ export async function currentAccount() {
     email: user.email ?? '',
     name: accountName(user.user_metadata, user.email),
     phone: typeof user.user_metadata?.phone === 'string' ? user.user_metadata.phone : '',
+    photo: accountPhoto(user.user_metadata),
+    createdAt: user.created_at ?? '',
+    provider: typeof user.app_metadata?.provider === 'string' ? user.app_metadata.provider : 'email',
   }
 }

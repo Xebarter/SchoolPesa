@@ -15,6 +15,7 @@ __v0_jsx-dev-runtime.ts
 # Common ignores
 node_modules
 .next/
+data/avatars/
 data/*.db
 data/*.db-*
 .DS_Store

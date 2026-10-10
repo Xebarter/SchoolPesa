@@ -77,11 +77,23 @@ CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);
 `)
 
 try { database.exec('ALTER TABLE donations ADD COLUMN external_id TEXT') } catch { /* column already exists */ }
+try { database.exec('ALTER TABLE donations ADD COLUMN created_at TEXT') } catch { /* column already exists */ }
+try { database.exec('ALTER TABLE campaigns ADD COLUMN owner_email TEXT') } catch { /* column already exists */ }
+try { database.exec('ALTER TABLE beneficiaries ADD COLUMN owner_email TEXT') } catch { /* column already exists */ }
 try { database.exec('ALTER TABLE notifications ADD COLUMN email TEXT') } catch { /* column already exists */ }
+try { database.exec('ALTER TABLE notifications ADD COLUMN kind TEXT') } catch { /* column already exists */ }
+try { database.exec('ALTER TABLE notifications ADD COLUMN href TEXT') } catch { /* column already exists */ }
+try { database.exec('ALTER TABLE notifications ADD COLUMN created_at TEXT') } catch { /* column already exists */ }
 database.exec(`
 CREATE TABLE IF NOT EXISTS donor_settings (
   email TEXT PRIMARY KEY,
-  email_updates INTEGER NOT NULL DEFAULT 1
+  email_updates INTEGER NOT NULL DEFAULT 1,
+  receipt_emails INTEGER NOT NULL DEFAULT 1,
+  digest INTEGER NOT NULL DEFAULT 1,
+  product_news INTEGER NOT NULL DEFAULT 0,
+  anonymous_default INTEGER NOT NULL DEFAULT 1,
+  public_recognition INTEGER NOT NULL DEFAULT 0,
+  update_cadence TEXT NOT NULL DEFAULT 'instant'
 );
 CREATE TABLE IF NOT EXISTS campaign_links (
   email TEXT NOT NULL,
@@ -102,9 +114,27 @@ CREATE TABLE IF NOT EXISTS donor_updates (
   email TEXT NOT NULL,
   title TEXT NOT NULL,
   body TEXT NOT NULL,
-  date TEXT NOT NULL
+  date TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'draft',
+  campaign_id TEXT,
+  beneficiary_id TEXT,
+  review_note TEXT NOT NULL DEFAULT '',
+  story_id TEXT,
+  category TEXT NOT NULL DEFAULT 'Success Stories'
 );
 `)
+try { database.exec("ALTER TABLE donor_updates ADD COLUMN status TEXT NOT NULL DEFAULT 'draft'") } catch { /* column already exists */ }
+try { database.exec('ALTER TABLE donor_updates ADD COLUMN campaign_id TEXT') } catch { /* column already exists */ }
+try { database.exec('ALTER TABLE donor_updates ADD COLUMN beneficiary_id TEXT') } catch { /* column already exists */ }
+try { database.exec("ALTER TABLE donor_updates ADD COLUMN review_note TEXT NOT NULL DEFAULT ''") } catch { /* column already exists */ }
+try { database.exec('ALTER TABLE donor_updates ADD COLUMN story_id TEXT') } catch { /* column already exists */ }
+try { database.exec("ALTER TABLE donor_updates ADD COLUMN category TEXT NOT NULL DEFAULT 'Success Stories'") } catch { /* column already exists */ }
+try { database.exec('ALTER TABLE donor_settings ADD COLUMN receipt_emails INTEGER NOT NULL DEFAULT 1') } catch { /* column already exists */ }
+try { database.exec('ALTER TABLE donor_settings ADD COLUMN digest INTEGER NOT NULL DEFAULT 1') } catch { /* column already exists */ }
+try { database.exec('ALTER TABLE donor_settings ADD COLUMN product_news INTEGER NOT NULL DEFAULT 0') } catch { /* column already exists */ }
+try { database.exec('ALTER TABLE donor_settings ADD COLUMN anonymous_default INTEGER NOT NULL DEFAULT 1') } catch { /* column already exists */ }
+try { database.exec('ALTER TABLE donor_settings ADD COLUMN public_recognition INTEGER NOT NULL DEFAULT 0') } catch { /* column already exists */ }
+try { database.exec("ALTER TABLE donor_settings ADD COLUMN update_cadence TEXT NOT NULL DEFAULT 'instant'") } catch { /* column already exists */ }
 
 function seed() {
   const count = database.prepare('SELECT COUNT(*) AS n FROM campaigns').get() as { n: number }
@@ -191,6 +221,12 @@ export function getDb() {
   return database
 }
 
+export function syncCampaignImpact() {
+  const active = database.prepare("SELECT COUNT(*) AS n FROM campaigns WHERE status = 'active'").get() as { n: number }
+  const completed = database.prepare("SELECT COUNT(*) AS n FROM campaigns WHERE status = 'completed'").get() as { n: number }
+  database.prepare('UPDATE impact_stats SET active_campaigns = ?, campaigns_completed = ? WHERE id = 1').run(Number(active.n), Number(completed.n))
+}
+
 export function listCampaigns(): Campaign[] {
   const rows = database.prepare('SELECT * FROM campaigns ORDER BY created_at DESC').all() as Record<string, string | number | null>[]
   return rows.map((row) => ({
@@ -216,6 +252,7 @@ export function listCampaigns(): Campaign[] {
     seoTitle: String(row.seo_title ?? ''),
     seoDescription: String(row.seo_description ?? ''),
     updates: json(String(row.updates ?? '[]'), []),
+    ownerEmail: row.owner_email ? String(row.owner_email) : undefined,
   }))
 }
 
@@ -237,11 +274,20 @@ export function listBeneficiaries(): Beneficiary[] {
     storyVisible: Boolean(row.story_visible),
     status: row.status as Beneficiary['status'],
     updates: json(String(row.updates ?? '[]'), []),
+    ownerEmail: row.owner_email ? String(row.owner_email) : undefined,
   }))
 }
 
+export function expireStaleDonations() {
+  const cutoff = new Date(Date.now() - 5 * 60 * 1000).toISOString()
+  database.prepare(`UPDATE donations SET status = 'Failed' WHERE status IN ('Pending', 'Processing') AND created_at IS NOT NULL AND created_at != '' AND created_at <= ?`).run(cutoff)
+  database.prepare(`UPDATE donations SET status = 'Failed' WHERE status IN ('Pending', 'Processing') AND (created_at IS NULL OR created_at = '')`).run()
+  database.prepare(`UPDATE transactions SET status = 'Failed' WHERE status IN ('Pending', 'Processing') AND donation_id IN (SELECT id FROM donations WHERE status = 'Failed')`).run()
+}
+
 export function listDonations(): Donation[] {
-  const rows = database.prepare('SELECT * FROM donations ORDER BY date DESC').all() as Record<string, string | number | null>[]
+  expireStaleDonations()
+  const rows = database.prepare('SELECT * FROM donations ORDER BY COALESCE(created_at, date) DESC').all() as Record<string, string | number | null>[]
   return rows.map((row) => ({
     id: String(row.id),
     donorName: String(row.donor_name),

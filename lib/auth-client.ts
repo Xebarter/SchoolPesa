@@ -62,3 +62,8 @@ export async function signOut() {
   const { error } = await client().auth.signOut()
   if (error) throw error
 }
+
+export async function signOutEverywhere() {
+  const { error } = await client().auth.signOut({ scope: 'global' })
+  if (error) throw error
+}

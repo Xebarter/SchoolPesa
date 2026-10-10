@@ -15,13 +15,75 @@ export function donorDonations(email: string) {
 }
 
 export function donorNotifications(email: string): NotificationItem[] {
-  const rows = getDb().prepare('SELECT id, title, body, date, read FROM notifications WHERE lower(email) = ? ORDER BY date DESC').all(matchEmail(email)) as Record<string, string | number>[]
-  return rows.map((row) => ({ id: String(row.id), title: String(row.title), body: String(row.body ?? ''), date: String(row.date), read: Boolean(row.read) }))
+  const rows = getDb().prepare('SELECT id, title, body, date, read, kind, href, created_at FROM notifications WHERE lower(email) = ? ORDER BY COALESCE(created_at, date) DESC').all(matchEmail(email)) as Record<string, string | number | null>[]
+  return rows.map((row) => ({
+    id: String(row.id),
+    title: String(row.title),
+    body: String(row.body ?? ''),
+    date: String(row.date),
+    read: Boolean(row.read),
+    kind: row.kind ? String(row.kind) : 'system',
+    href: row.href ? String(row.href) : undefined,
+    createdAt: row.created_at ? String(row.created_at) : undefined,
+  }))
+}
+
+export type UpdateCadence = 'instant' | 'weekly' | 'off'
+
+export type DonorPreferences = {
+  updateCadence: UpdateCadence
+  receiptEmails: boolean
+  digest: boolean
+  productNews: boolean
+  anonymousDefault: boolean
+  publicRecognition: boolean
+}
+
+const preferenceDefaults: DonorPreferences = {
+  updateCadence: 'instant',
+  receiptEmails: true,
+  digest: true,
+  productNews: false,
+  anonymousDefault: true,
+  publicRecognition: false,
+}
+
+type PreferenceRow = {
+  email_updates: number
+  receipt_emails: number
+  digest: number
+  product_news: number
+  anonymous_default: number
+  public_recognition: number
+  update_cadence: string
+}
+
+function cadenceOf(value: string, emailUpdates: number): UpdateCadence {
+  if (!emailUpdates) return 'off'
+  if (value === 'weekly' || value === 'off' || value === 'instant') return value
+  return 'instant'
+}
+
+export function donorPreferences(email: string): DonorPreferences {
+  const key = matchEmail(email)
+  const row = getDb().prepare(`SELECT email_updates, receipt_emails, digest, product_news, anonymous_default, public_recognition, update_cadence
+    FROM donor_settings WHERE lower(email) = ?`).get(key) as PreferenceRow | undefined
+  if (!row) {
+    const subscribed = getDb().prepare('SELECT 1 AS n FROM newsletter WHERE lower(email) = ?').get(key)
+    return { ...preferenceDefaults, productNews: Boolean(subscribed) }
+  }
+  return {
+    updateCadence: cadenceOf(row.update_cadence, row.email_updates),
+    receiptEmails: Boolean(row.receipt_emails),
+    digest: Boolean(row.digest),
+    productNews: Boolean(row.product_news),
+    anonymousDefault: Boolean(row.anonymous_default),
+    publicRecognition: Boolean(row.public_recognition),
+  }
 }
 
 export function donorEmailUpdates(email: string) {
-  const row = getDb().prepare('SELECT email_updates FROM donor_settings WHERE lower(email) = ?').get(matchEmail(email)) as { email_updates: number } | undefined
-  return row ? Boolean(row.email_updates) : true
+  return donorPreferences(email).updateCadence !== 'off'
 }
 
 export type LinkedCampaign = Campaign & { note: string }
@@ -58,11 +120,71 @@ export function donorChildren(email: string): LinkedChild[] {
     .map((item) => ({ ...item, note: notes.get(item.id) ?? '' }))
 }
 
-export type DonorUpdate = { id: string; title: string; body: string; date: string }
+export type UpdateStatus = 'draft' | 'submitted' | 'changes' | 'published' | 'declined'
+
+export type DonorUpdate = {
+  id: string
+  email: string
+  title: string
+  body: string
+  date: string
+  status: UpdateStatus
+  campaignId?: string
+  beneficiaryId?: string
+  reviewNote: string
+  storyId?: string
+  storySlug?: string
+  category: string
+}
+
+type UpdateRow = {
+  id: string
+  email: string
+  title: string
+  body: string
+  date: string
+  status: string
+  campaign_id: string | null
+  beneficiary_id: string | null
+  review_note: string
+  story_id: string | null
+  category: string
+  story_slug: string | null
+}
+
+function mapUpdate(row: UpdateRow): DonorUpdate {
+  return {
+    id: row.id,
+    email: row.email,
+    title: row.title,
+    body: row.body,
+    date: row.date,
+    status: (row.status || 'draft') as UpdateStatus,
+    campaignId: row.campaign_id || undefined,
+    beneficiaryId: row.beneficiary_id || undefined,
+    reviewNote: row.review_note || '',
+    storyId: row.story_id || undefined,
+    storySlug: row.story_slug || undefined,
+    category: row.category || 'Success Stories',
+  }
+}
+
+const updateSelect = `SELECT u.id, u.email, u.title, u.body, u.date, u.status, u.campaign_id, u.beneficiary_id, u.review_note, u.story_id, u.category, s.slug AS story_slug
+  FROM donor_updates u LEFT JOIN stories s ON s.id = u.story_id`
 
 export function donorUpdates(email: string): DonorUpdate[] {
-  const rows = getDb().prepare('SELECT id, title, body, date FROM donor_updates WHERE lower(email) = ? ORDER BY date DESC').all(matchEmail(email)) as DonorUpdate[]
-  return rows.map((row) => ({ id: row.id, title: row.title, body: row.body, date: row.date }))
+  const rows = getDb().prepare(`${updateSelect} WHERE lower(u.email) = ? ORDER BY u.date DESC, u.id DESC`).all(matchEmail(email)) as UpdateRow[]
+  return rows.map(mapUpdate)
+}
+
+export function listImpactUpdates(): DonorUpdate[] {
+  const rows = getDb().prepare(`${updateSelect} ORDER BY CASE u.status WHEN 'submitted' THEN 0 WHEN 'changes' THEN 1 WHEN 'published' THEN 2 WHEN 'declined' THEN 3 ELSE 4 END, u.date DESC`).all() as UpdateRow[]
+  return rows.map(mapUpdate)
+}
+
+export function impactUpdatesInReview() {
+  const row = getDb().prepare("SELECT COUNT(*) AS n FROM donor_updates WHERE status = 'submitted'").get() as { n: number }
+  return Number(row.n)
 }
 
 export function donorStories(email: string): Story[] {

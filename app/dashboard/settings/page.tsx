@@ -1,11 +1,23 @@
 import { SettingsForm } from '@/components/dashboard/settings-form'
-import { donorEmailUpdates } from '@/lib/donor'
+import { donorPreferences } from '@/lib/donor'
 import { currentAccount } from '@/lib/supabase/session'
 
 export const metadata = { title: 'Settings' }
 
 export default async function Page() {
   const account = await currentAccount()
-  const emailUpdates = account ? donorEmailUpdates(account.email) : true
-  return <SettingsForm emailUpdates={emailUpdates} />
+  if (!account) return null
+  return (
+    <SettingsForm
+      account={{
+        name: account.name,
+        email: account.email,
+        phone: account.phone,
+        photo: account.photo,
+        createdAt: account.createdAt,
+        provider: account.provider,
+      }}
+      preferences={donorPreferences(account.email)}
+    />
+  )
 }

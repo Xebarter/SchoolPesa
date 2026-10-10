@@ -49,6 +49,7 @@ export type Campaign = {
   seoTitle: string
   seoDescription: string
   updates: CampaignUpdate[]
+  ownerEmail?: string
 }
 
 export type BeneficiaryUpdate = {
@@ -73,6 +74,21 @@ export type Beneficiary = {
   storyVisible: boolean
   status: 'active' | 'paused' | 'completed'
   updates: BeneficiaryUpdate[]
+  ownerEmail?: string
+}
+
+export type DonorLearnerInput = {
+  displayName: string
+  level: string
+  school: string
+  location: string
+  needs: string
+  story: string
+  target: number
+  status: Beneficiary['status']
+  publicProfile: boolean
+  publicImage: boolean
+  storyVisible: boolean
 }
 
 export type Donation = {
@@ -187,6 +203,9 @@ export type NotificationItem = {
   body: string
   date: string
   read: boolean
+  kind?: string
+  href?: string
+  createdAt?: string
 }
 
 export type Faq = {

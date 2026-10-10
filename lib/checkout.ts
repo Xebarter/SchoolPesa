@@ -1,7 +1,9 @@
 import { createVerify, type KeyObject, createPublicKey } from 'node:crypto'
 import { headers } from 'next/headers'
 import { revalidatePath } from 'next/cache'
-import { getDb } from '@/lib/db'
+import { expireStaleDonations, getDb } from '@/lib/db'
+import { formatUGX } from '@/lib/format'
+import { alertDonor } from '@/lib/notify'
 import type { CheckoutDraft, DonationStatus } from '@/lib/types'
 
 function gateway() {
@@ -113,10 +115,11 @@ export async function startDonation(draft: CheckoutDraft) {
   if (!executed.ok) throw new Error('The payment prompt could not be sent. Check the mobile number and try again.')
 
   const today = new Date().toISOString().slice(0, 10)
+  const createdAt = new Date().toISOString()
   const donationId = id('d')
   const db = getDb()
-  db.prepare(`INSERT INTO donations (id, donor_name, anonymous, email, phone, amount, frequency, campaign_id, beneficiary_id, support_target, method, transaction_id, date, status, message, external_id)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+  db.prepare(`INSERT INTO donations (id, donor_name, anonymous, email, phone, amount, frequency, campaign_id, beneficiary_id, support_target, method, transaction_id, date, status, message, external_id, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
     donationId,
     draft.anonymous ? 'Anonymous' : donorName,
     draft.anonymous ? 1 : 0,
@@ -133,17 +136,17 @@ export async function startDonation(draft: CheckoutDraft) {
     'Processing',
     draft.message || null,
     created.id,
+    createdAt,
   )
   db.prepare('INSERT INTO transactions (id, donation_id, provider, reference, amount, status, date) VALUES (?, ?, ?, ?, ?, ?, ?)').run(
     id('pt'), donationId, 'Mobile money', reference, draft.amount, 'Processing', today,
   )
-  db.prepare('INSERT INTO notifications (id, title, body, date, read, email) VALUES (?, ?, ?, ?, 0, ?)').run(
-    id('nt'),
-    'Payment prompt sent',
-    `${draft.anonymous ? 'A donor' : donorName} is paying ${draft.amount} UGX. Reference ${reference}.`,
-    today,
-    donorEmail,
-  )
+  alertDonor(donorEmail, {
+    title: 'Payment prompt sent',
+    body: `Approve ${formatUGX(draft.amount)} on your phone. Reference ${reference}.`,
+    kind: 'gift',
+    href: '/dashboard/donations',
+  })
   revalidatePath('/dashboard')
   revalidatePath('/admin/donations')
   return { reference, status: 'prompt' as const }
@@ -163,13 +166,14 @@ export function applyPaymentUpdate(payload: { id?: string; reference?: string; s
   const next = mapStatus(payload.status || '', payload.event_type || '')
   if (!next) return { updated: false }
   const db = getDb()
-  const row = db.prepare('SELECT id, amount, campaign_id, beneficiary_id, status, transaction_id FROM donations WHERE transaction_id = ? OR external_id = ?').get(payload.reference ?? '', payload.id ?? '') as {
+  const row = db.prepare('SELECT id, amount, campaign_id, beneficiary_id, status, transaction_id, email FROM donations WHERE transaction_id = ? OR external_id = ?').get(payload.reference ?? '', payload.id ?? '') as {
     id: string
     amount: number
     campaign_id: string | null
     beneficiary_id: string | null
     status: string
     transaction_id: string
+    email: string | null
   } | undefined
   if (!row || row.status === next) return { updated: false, reference: row?.transaction_id }
   const wasSuccessful = row.status === 'Successful'
@@ -185,6 +189,15 @@ export function applyPaymentUpdate(payload: { id?: string; reference?: string; s
     if (row.beneficiary_id) db.prepare('UPDATE beneficiaries SET raised = MAX(raised - ?, 0) WHERE id = ?').run(row.amount, row.beneficiary_id)
     db.prepare('UPDATE impact_stats SET funds_raised = MAX(funds_raised - ?, 0) WHERE id = 1').run(row.amount)
   }
+  if (row.email) {
+    const confirmed = next === 'Successful'
+    alertDonor(row.email, {
+      title: confirmed ? 'Gift confirmed' : `Gift ${next.toLowerCase()}`,
+      body: confirmed ? `${formatUGX(row.amount)} is confirmed. Reference ${row.transaction_id}.` : `${formatUGX(row.amount)} is now ${next.toLowerCase()}. Reference ${row.transaction_id}.`,
+      kind: 'gift',
+      href: confirmed ? '/dashboard/receipts' : '/dashboard/donations',
+    })
+  }
   revalidatePath('/dashboard')
   revalidatePath('/admin')
   revalidatePath('/admin/donations')
@@ -194,6 +207,7 @@ export function applyPaymentUpdate(payload: { id?: string; reference?: string; s
 }
 
 export function paymentStatus(reference: string) {
+  expireStaleDonations()
   const row = getDb().prepare('SELECT status, amount, frequency FROM donations WHERE transaction_id = ?').get(reference) as { status: string; amount: number; frequency: string } | undefined
   if (!row) return null
   return { reference, status: row.status, amount: row.amount, frequency: row.frequency }

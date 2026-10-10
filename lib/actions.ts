@@ -1,7 +1,7 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { getDb } from '@/lib/db'
+import { getDb, syncCampaignImpact } from '@/lib/db'
 import type { CampaignStatus, CheckoutDraft, Expense, GalleryItem, Story, Volunteer } from '@/lib/types'
 
 function id(prefix: string) {
@@ -59,6 +59,21 @@ export async function recordDonation(draft: CheckoutDraft, reference: string) {
   revalidatePath('/impact')
 }
 
+function slugify(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+}
+
+function galleryJson(value?: string) {
+  const items = (value ?? '').split(/[\n,]/).map((item) => item.trim()).filter(Boolean)
+  return JSON.stringify(items)
+}
+
+function readable(error: unknown, fallback: string): never {
+  const message = error instanceof Error ? error.message : fallback
+  if (/UNIQUE/i.test(message)) throw new Error('A campaign with that address already exists.')
+  throw error instanceof Error ? error : new Error(fallback)
+}
+
 export async function createCampaign(input: {
   title: string
   slug: string
@@ -69,27 +84,67 @@ export async function createCampaign(input: {
   location: string
   target: number
   deadline: string
+  createdAt?: string
+  image?: string
+  gallery?: string
   video?: string
   seoTitle: string
   seoDescription: string
   status: CampaignStatus
   beneficiaryId?: string
 }) {
+  const title = input.title.trim()
+  if (!title) throw new Error('Add a campaign title.')
+  const target = Math.round(Number(input.target))
+  if (!Number.isFinite(target) || target < 0) throw new Error('Enter a target of zero or more.')
+  if (!input.deadline) throw new Error('Choose an end date.')
   const campaignId = id('camp')
-  const slug = input.slug || input.title.toLowerCase().replace(/[^a-z0-9]+/g, '-')
-  getDb().prepare(`INSERT INTO campaigns (id, slug, title, summary, description, story, category, level, location, status, target, raised, donors, deadline, created_at, image, gallery, video, beneficiary_id, seo_title, seo_description, updates)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?, '/school-pesa-hero.png', '[]', ?, ?, ?, ?, '[]')`).run(
-    campaignId, slug, input.title || 'Untitled campaign', input.summary, input.description, input.description, input.category, input.level, input.location, input.status, input.target, input.deadline, new Date().toISOString().slice(0, 10), input.video || null, input.beneficiaryId || null, input.seoTitle || input.title, input.seoDescription || input.summary,
-  )
-  audit('Campaign Manager', 'created', 'Campaign', `Created campaign "${input.title}"`)
+  const slug = slugify(input.slug || title) || `campaign-${campaignId.slice(-4)}`
+  try {
+    getDb().prepare(`INSERT INTO campaigns (id, slug, title, summary, description, story, category, level, location, status, target, raised, donors, deadline, created_at, image, gallery, video, beneficiary_id, seo_title, seo_description, updates)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?, ?, ?, ?, ?, ?, '[]')`).run(
+      campaignId,
+      slug,
+      title,
+      input.summary.trim(),
+      input.description.trim(),
+      input.description.trim(),
+      input.category.trim() || 'School Fees',
+      input.level,
+      input.location.trim(),
+      input.status,
+      target,
+      input.deadline,
+      input.createdAt || new Date().toISOString().slice(0, 10),
+      input.image?.trim() || '/school-pesa-hero.png',
+      galleryJson(input.gallery),
+      input.video?.trim() || null,
+      input.beneficiaryId || null,
+      input.seoTitle.trim() || title,
+      input.seoDescription.trim() || input.summary.trim(),
+    )
+  } catch (error) {
+    readable(error, 'The campaign could not be created.')
+  }
+  syncCampaignImpact()
+  audit('Campaign Manager', 'created', 'Campaign', `Created campaign "${title}"`)
   revalidatePath('/campaigns')
+  revalidatePath('/campaigns/[slug]', 'page')
+  revalidatePath('/admin')
   revalidatePath('/admin/campaigns')
+  revalidatePath('/donate')
 }
 
 export async function updateCampaignStatus(campaignId: string, status: CampaignStatus) {
-  getDb().prepare('UPDATE campaigns SET status = ? WHERE id = ?').run(status, campaignId)
+  const result = getDb().prepare('UPDATE campaigns SET status = ? WHERE id = ?').run(status, campaignId)
+  if (Number(result.changes) === 0) throw new Error('Campaign was not found.')
+  syncCampaignImpact()
+  audit('Campaign Manager', 'updated', 'Campaign', `Set campaign ${campaignId} to ${status}`)
   revalidatePath('/campaigns')
+  revalidatePath('/campaigns/[slug]', 'page')
+  revalidatePath('/admin')
   revalidatePath('/admin/campaigns')
+  revalidatePath('/donate')
 }
 
 export async function saveBeneficiary(input: {

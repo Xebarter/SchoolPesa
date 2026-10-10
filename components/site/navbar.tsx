@@ -5,9 +5,12 @@ import { usePathname } from 'next/navigation'
 import { useEffect, useState, type ComponentType } from 'react'
 import { createPortal } from 'react-dom'
 import { BookOpen, ChartColumn, GraduationCap, HandHeart, Home, Info, Megaphone, Menu, UserRound, X } from 'lucide-react'
+import { NotificationBell } from '@/components/dashboard/notification-bell'
 import { Logo } from '@/components/site/logo'
 import { Button } from '@/components/ui/button'
+import { accountPhoto } from '@/lib/supabase/account'
 import { createBrowserClient } from '@/lib/supabase/client'
+import type { NotificationItem } from '@/lib/types'
 import { cn } from '@/lib/utils'
 
 type Icon = ComponentType<{ className?: string }>
@@ -32,6 +35,7 @@ export function Navbar() {
   const [open, setOpen] = useState(false)
   const [signedIn, setSignedIn] = useState(false)
   const [avatar, setAvatar] = useState('')
+  const [alerts, setAlerts] = useState<NotificationItem[]>([])
 
   useEffect(() => {
     const supabase = createBrowserClient()
@@ -40,9 +44,7 @@ export function Navbar() {
     function apply(user: { user_metadata?: Record<string, unknown> } | null) {
       if (!active) return
       setSignedIn(Boolean(user))
-      const meta = user?.user_metadata
-      const photo = meta?.avatar_url ?? meta?.picture
-      setAvatar(typeof photo === 'string' ? photo : '')
+      setAvatar(accountPhoto(user?.user_metadata))
     }
     void supabase.auth.getUser().then(({ data }) => apply(data.user))
     const { data } = supabase.auth.onAuthStateChange((_event, session) => {
@@ -57,6 +59,27 @@ export function Navbar() {
   useEffect(() => {
     setOpen(false)
   }, [pathname])
+
+  useEffect(() => {
+    if (!signedIn) {
+      setAlerts([])
+      return
+    }
+    let active = true
+    function load() {
+      void fetch('/api/notifications').then((response) => response.json()).then((data: { items?: NotificationItem[] }) => {
+        if (active) setAlerts(data.items ?? [])
+      }).catch(() => {
+        if (active) setAlerts([])
+      })
+    }
+    load()
+    window.addEventListener('focus', load)
+    return () => {
+      active = false
+      window.removeEventListener('focus', load)
+    }
+  }, [signedIn, pathname])
 
   useEffect(() => {
     if (!open) return
@@ -83,6 +106,7 @@ export function Navbar() {
           ))}
         </nav>
         <div className="flex items-center gap-3">
+          {signedIn ? <NotificationBell items={alerts} onUpdated={() => { void fetch('/api/notifications').then((response) => response.json()).then((data: { items?: NotificationItem[] }) => setAlerts(data.items ?? [])).catch(() => setAlerts([])) }} /> : null}
           <Link href={signedIn ? '/dashboard' : '/login'} aria-label={signedIn ? 'Account' : 'Sign in'} className="grid size-10 place-items-center overflow-hidden rounded-full border border-line text-forest">
             {avatar ? <img src={avatar} alt="" referrerPolicy="no-referrer" className="size-full object-cover" /> : <UserRound className="size-5" />}
           </Link>

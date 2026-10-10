@@ -65,6 +65,9 @@ const tones: Record<string, string> = {
   accepted: 'bg-mist text-forest',
   public: 'bg-mist text-forest',
   pending: 'bg-[#fff4dc] text-[#8a5a12]',
+  submitted: 'bg-[#fff4dc] text-[#8a5a12]',
+  changes: 'bg-[#fff4dc] text-[#8a5a12]',
+  declined: 'bg-[#f8ece8] text-[#8d4b38]',
   processing: 'bg-[#fff4dc] text-[#8a5a12]',
   draft: 'bg-[#f3f0ea] text-[#5c564c]',
   new: 'bg-[#fff4dc] text-[#8a5a12]',
@@ -77,11 +80,11 @@ const tones: Record<string, string> = {
   refunded: 'bg-[#f8ece8] text-[#8d4b38]',
 }
 
-export function StatusPill({ value }: { value: string }) {
+export function StatusPill({ value, label }: { value: string; label?: string }) {
   const key = value.toLowerCase()
   return (
     <span className={cn('inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold capitalize', tones[key] ?? 'bg-mist text-forest')}>
-      {value}
+      {label ?? value}
     </span>
   )
 }

@@ -1,10 +1,11 @@
 'use client'
 
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import { Check } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Input, Label, Select, Textarea } from '@/components/ui/input'
+import { Input, Label, Textarea } from '@/components/ui/input'
 import { ReceiptDownload } from '@/components/receipt-download'
 import { startDonation } from '@/lib/checkout-actions'
 import { formatUGX } from '@/lib/format'
@@ -12,9 +13,9 @@ import type { Beneficiary, Campaign, CheckoutDraft, DonationFrequency, SupportTa
 
 const amounts = [20000, 50000, 100000, 250000]
 
-export function DonationForm({ campaigns, beneficiaries }: { campaigns: Campaign[]; beneficiaries: Beneficiary[] }) {
+export function DonationForm({ campaigns, beneficiaries, focus, anonymousDefault = true }: { campaigns: Campaign[]; beneficiaries: Beneficiary[]; focus?: Campaign; anonymousDefault?: boolean }) {
   const params = useSearchParams()
-  const preset = campaigns.find((item) => item.slug === params.get('campaign'))
+  const preset = focus ?? campaigns.find((item) => item.slug === params.get('campaign'))
   const child = beneficiaries.find((item) => item.id === params.get('child'))
   const [amount, setAmount] = useState('50000')
   const [custom, setCustom] = useState(false)
@@ -23,7 +24,7 @@ export function DonationForm({ campaigns, beneficiaries }: { campaigns: Campaign
   const [picking, setPicking] = useState(false)
   const [campaignId, setCampaignId] = useState(preset?.id ?? campaigns[0]?.id ?? '')
   const [beneficiaryId, setBeneficiaryId] = useState(child?.id ?? beneficiaries[0]?.id ?? '')
-  const [anonymous, setAnonymous] = useState(true)
+  const [anonymous, setAnonymous] = useState(anonymousDefault)
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [reason, setReason] = useState('')
@@ -88,19 +89,19 @@ export function DonationForm({ campaigns, beneficiaries }: { campaigns: Campaign
   }
 
   return (
-    <form className="border border-line bg-white p-6 shadow-[0_24px_60px_-36px_rgba(22,29,36,0.45)] sm:p-8" onSubmit={prepare}>
-      <div className="flex items-end justify-between gap-4">
+    <form className={`border border-line bg-white p-4 shadow-[0_24px_60px_-36px_rgba(22,29,36,0.45)] sm:p-8 ${preset ? 'mb-28 sm:mb-0' : ''}`} onSubmit={prepare}>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <p className="text-xs font-semibold uppercase tracking-[.16em] text-brand">Amount</p>
-        <div className="flex rounded-full bg-cream p-1">
+        <div className="flex w-full rounded-full bg-cream p-1 sm:w-auto">
           {(['one-time', 'monthly'] as const).map((item) => (
-            <button key={item} type="button" onClick={() => setFrequency(item)} className={`rounded-full px-3.5 py-1.5 text-sm font-semibold transition-colors ${frequency === item ? 'bg-white text-ink shadow-sm' : 'text-sage hover:text-ink'}`}>{item === 'one-time' ? 'One-time' : 'Monthly'}</button>
+            <button key={item} type="button" onClick={() => setFrequency(item)} className={`h-10 flex-1 rounded-full px-3 text-sm font-semibold transition-colors sm:flex-none sm:px-3.5 ${frequency === item ? 'bg-white text-ink shadow-sm' : 'text-sage hover:text-ink'}`}>{item === 'one-time' ? 'One-time' : 'Monthly'}</button>
           ))}
         </div>
       </div>
 
       <div className="mt-4 grid grid-cols-2 gap-2">
         {amounts.map((value) => (
-          <button key={value} type="button" onClick={() => { setAmount(String(value)); setCustom(false) }} className={`border py-4 text-lg font-semibold tracking-[-.02em] transition-colors ${!custom && amount === String(value) ? 'border-brand bg-brand text-white' : 'border-line bg-cream text-ink hover:border-brand hover:text-brand'}`}>
+          <button key={value} type="button" onClick={() => { setAmount(String(value)); setCustom(false) }} className={`min-h-14 border px-2 py-3 text-sm font-semibold tracking-[-.02em] transition-colors sm:text-lg ${!custom && amount === String(value) ? 'border-brand bg-brand text-white' : 'border-line bg-cream text-ink hover:border-brand hover:text-brand'}`}>
             {formatUGX(value)}
           </button>
         ))}
@@ -121,36 +122,51 @@ export function DonationForm({ campaigns, beneficiaries }: { campaigns: Campaign
       </div>
 
       <div className="mt-8 border-t border-line pt-8">
-        <div className="flex items-center justify-between gap-3">
-          <p className="text-xs font-semibold uppercase tracking-[.16em] text-brand">Directed to</p>
-          {supportTarget === 'general' && !picking ? (
-            <button type="button" className="text-sm font-semibold text-forest hover:text-brand" onClick={() => { setPicking(true); setSupportTarget('campaign') }}>Choose</button>
-          ) : (
-            <button type="button" className="text-sm font-semibold text-forest hover:text-brand" onClick={() => { setSupportTarget('general'); setPicking(false) }}>Where needed</button>
-          )}
-        </div>
-        <p className="mt-3 font-semibold text-ink">{supportLabel === 'where it is needed most' ? 'Education support where it is needed most' : supportLabel}</p>
-        {picking && (
-          <div className="mt-4">
-            <div className="flex gap-2">
-              <button type="button" onClick={() => setSupportTarget('campaign')} className={`rounded-full px-4 py-2 text-sm font-semibold ${supportTarget === 'campaign' ? 'bg-forest text-white' : 'bg-cream text-sage'}`}>Campaign</button>
-              <button type="button" onClick={() => setSupportTarget('child')} className={`rounded-full px-4 py-2 text-sm font-semibold ${supportTarget === 'child' ? 'bg-forest text-white' : 'bg-cream text-sage'}`}>Child</button>
-            </div>
-            {supportTarget === 'campaign' && (
-              <Select className="mt-3" value={campaignId} onChange={(event) => setCampaignId(event.target.value)} aria-label="Campaign">
-                {campaigns.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}
-              </Select>
-            )}
-            {supportTarget === 'child' && (
-              <Select className="mt-3" value={beneficiaryId} onChange={(event) => setBeneficiaryId(event.target.value)} aria-label="Learner">
-                {beneficiaries.map((item) => <option key={item.id} value={item.id}>{item.displayName} · {item.level}</option>)}
-              </Select>
-            )}
+        {preset ? (
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[.16em] text-brand">This gift supports</p>
+            <p className="mt-3 text-lg font-semibold tracking-tight text-ink">{preset.title}</p>
+            <p className="mt-1 text-sm text-sage">{preset.category} · {preset.location}</p>
+            <Link href="/donate" className="mt-3 inline-flex min-h-11 items-center text-sm font-semibold text-forest hover:text-brand">Give to a different cause</Link>
           </div>
+        ) : (
+          <>
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-xs font-semibold uppercase tracking-[.16em] text-brand">Directed to</p>
+              {supportTarget === 'general' && !picking ? (
+                <button type="button" className="text-sm font-semibold text-forest hover:text-brand" onClick={() => { setPicking(true); setSupportTarget('campaign') }}>Choose</button>
+              ) : (
+                <button type="button" className="text-sm font-semibold text-forest hover:text-brand" onClick={() => { setSupportTarget('general'); setPicking(false) }}>Where needed</button>
+              )}
+            </div>
+            <p className="mt-3 font-semibold text-ink">{supportLabel === 'where it is needed most' ? 'Education support where it is needed most' : supportLabel}</p>
+            {picking && (
+              <div className="mt-4">
+                <div className="flex gap-2">
+                  <button type="button" onClick={() => setSupportTarget('campaign')} className={`h-11 flex-1 rounded-full px-4 text-sm font-semibold ${supportTarget === 'campaign' ? 'bg-forest text-white' : 'bg-cream text-sage'}`}>Campaign</button>
+                  <button type="button" onClick={() => setSupportTarget('child')} className={`h-11 flex-1 rounded-full px-4 text-sm font-semibold ${supportTarget === 'child' ? 'bg-forest text-white' : 'bg-cream text-sage'}`}>Child</button>
+                </div>
+                {supportTarget === 'campaign' && (
+                  <div className="mt-3 max-h-56 space-y-2 overflow-y-auto">
+                    {campaigns.map((item) => (
+                      <button key={item.id} type="button" onClick={() => setCampaignId(item.id)} className={`block w-full truncate px-4 py-3 text-left text-sm font-semibold ${campaignId === item.id ? 'bg-forest text-white' : 'bg-cream text-ink'}`}>{item.title}</button>
+                    ))}
+                  </div>
+                )}
+                {supportTarget === 'child' && (
+                  <div className="mt-3 max-h-56 space-y-2 overflow-y-auto">
+                    {beneficiaries.map((item) => (
+                      <button key={item.id} type="button" onClick={() => setBeneficiaryId(item.id)} className={`block w-full truncate px-4 py-3 text-left text-sm font-semibold ${beneficiaryId === item.id ? 'bg-forest text-white' : 'bg-cream text-ink'}`}>{item.displayName} · {item.level}</button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+            {supportTarget !== 'general' && !picking ? (
+              <button type="button" className="mt-3 inline-flex min-h-11 items-center text-sm font-semibold text-forest hover:text-brand" onClick={() => setPicking(true)}>Change</button>
+            ) : null}
+          </>
         )}
-        {supportTarget !== 'general' && !picking ? (
-          <button type="button" className="mt-3 text-sm font-semibold text-forest hover:text-brand" onClick={() => setPicking(true)}>Change</button>
-        ) : null}
       </div>
 
       <div className="mt-8 border-t border-line pt-8">
@@ -179,11 +195,14 @@ export function DonationForm({ campaigns, beneficiaries }: { campaigns: Campaign
       </div>
 
       {error ? <p className="mt-4 text-sm text-ink" role="alert">{error}</p> : null}
+      {!preset ? <p className="mt-4 text-center text-xs leading-5 text-sage">Approve the prompt on your phone to complete the gift.</p> : null}
 
-      <Button type="submit" className="mt-8 h-12 w-full rounded-full bg-brand text-base text-white shadow-none hover:bg-brand-deep" disabled={!ready || submitting}>
-        {submitting ? 'Sending prompt…' : `Donate ${draft.amount > 0 ? formatUGX(draft.amount) : ''}`}
-      </Button>
-      <p className="mt-3 text-center text-xs leading-5 text-sage">Approve the prompt on your phone to complete the gift.</p>
+      <div className={preset ? 'fixed inset-x-0 bottom-0 z-30 border-t border-line bg-white px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:static sm:mt-8 sm:border-0 sm:bg-transparent sm:p-0' : 'mt-4'}>
+        <Button type="submit" className="h-12 w-full rounded-full bg-brand text-base text-white shadow-none hover:bg-brand-deep" disabled={!ready || submitting}>
+          {submitting ? 'Sending prompt…' : `Donate ${draft.amount > 0 ? formatUGX(draft.amount) : ''}`}
+        </Button>
+        {preset ? <p className="mt-2 hidden text-center text-xs leading-5 text-sage sm:block">Approve the prompt on your phone to complete the gift.</p> : null}
+      </div>
     </form>
   )
 }
