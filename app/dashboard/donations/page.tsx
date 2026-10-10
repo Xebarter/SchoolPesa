@@ -1,31 +1,18 @@
-import { PageIntro } from '@/components/admin/ui'
-import { DonationsTable } from '@/components/dashboard/donations-table'
-import { donations } from '@/lib/data'
-import { formatUGX } from '@/lib/format'
+import { GiftLedger } from '@/components/dashboard/gift-ledger'
+import { donorDonations } from '@/lib/donor'
+import { getBeneficiaries, getCampaigns } from '@/lib/data'
+import { currentAccount } from '@/lib/supabase/session'
 
 export const metadata = { title: 'My donations' }
 
-export default function Page() {
-  const successful = donations.filter((item) => item.status === 'Successful')
-  const total = successful.reduce((sum, item) => sum + item.amount, 0)
+export default async function Page() {
+  const account = await currentAccount()
+  const donations = account ? donorDonations(account.email) : []
+  const campaigns = getCampaigns().map((item) => ({ id: item.id, title: item.title }))
+  const learners = getBeneficiaries().map((item) => ({ id: item.id, displayName: item.displayName }))
   return (
-    <div>
-      <PageIntro title="My donations" description="Search and filter every gift. Receipts are prepared once a payment provider is connected." />
-      <div className="mt-6 grid gap-3 sm:grid-cols-3">
-        {[
-          [String(donations.length), 'Gifts on record'],
-          [String(successful.length), 'Successful'],
-          [formatUGX(total), 'Given successfully'],
-        ].map(([value, label]) => (
-          <div key={label} className="rounded-2xl border border-line bg-white px-5 py-4 shadow-sm shadow-forest/5">
-            <p className="text-xl font-semibold tracking-tight text-forest">{value}</p>
-            <p className="mt-1 text-xs text-sage">{label}</p>
-          </div>
-        ))}
-      </div>
-      <div className="mt-6">
-        <DonationsTable donations={donations} donorView />
-      </div>
+    <div className="mx-auto max-w-6xl">
+      <GiftLedger donations={donations} campaigns={campaigns} learners={learners} />
     </div>
   )
 }

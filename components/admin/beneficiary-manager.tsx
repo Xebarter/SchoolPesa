@@ -2,51 +2,71 @@
 
 import Image from 'next/image'
 import Link from 'next/link'
-import { useState } from 'react'
+import { useRouter } from 'next/navigation'
+import { useEffect, useState } from 'react'
 import { PageIntro, Panel, StatusPill, TableFrame, actionClass, tdClass, thClass, trClass } from '@/components/admin/ui'
 import { Button } from '@/components/ui/button'
 import { Input, Label, Select, Textarea } from '@/components/ui/input'
+import { deleteBeneficiary } from '@/lib/admin-actions'
+import { saveBeneficiary } from '@/lib/actions'
 import { formatUGX } from '@/lib/format'
 import type { Beneficiary, EducationLevel } from '@/lib/types'
 
 const empty = { displayName: '', level: 'Primary' as EducationLevel, school: '', location: '', story: '', needs: '', target: '1000000', publicProfile: true, publicImage: true, storyVisible: true }
 
 export function BeneficiaryManager({ initial }: { initial: Beneficiary[] }) {
+  const router = useRouter()
   const [rows, setRows] = useState(initial)
   const [editing, setEditing] = useState<string | null>(null)
   const [form, setForm] = useState(empty)
+  const [error, setError] = useState('')
+  const [pending, setPending] = useState(false)
+  useEffect(() => { setRows(initial) }, [initial])
 
-  function save() {
-    if (editing) {
-      setRows((current) => current.map((item) => item.id === editing ? { ...item, ...form, target: Number(form.target) || item.target } : item))
-    } else {
-      setRows((current) => [{
-        id: `ben-${Date.now()}`,
+  async function save() {
+    if (pending) return
+    setPending(true)
+    setError('')
+    try {
+      await saveBeneficiary({
+        id: editing ?? undefined,
         displayName: form.displayName || 'Learner',
         level: form.level,
         school: form.school,
         location: form.location,
-        story: form.story,
         needs: form.needs,
+        story: form.story,
         target: Number(form.target) || 0,
-        raised: 0,
-        image: '/school-pesa-hero.png',
         publicProfile: form.publicProfile,
         publicImage: form.publicImage,
         storyVisible: form.storyVisible,
-        status: 'active',
-        updates: [],
-      }, ...current])
+      })
+      setEditing(null)
+      setForm(empty)
+      router.refresh()
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'The learner could not be saved.')
+    } finally {
+      setPending(false)
     }
-    setEditing(null)
-    setForm(empty)
+  }
+
+  async function remove(id: string) {
+    setError('')
+    try {
+      await deleteBeneficiary(id)
+      router.refresh()
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'The learner could not be removed.')
+    }
   }
 
   return (
     <div>
       <PageIntro title="Beneficiaries" description="Learner profiles used for sponsorship, with privacy controls for the public site." />
       <Panel title={editing ? 'Edit learner' : 'Add a learner'} description="Names, photos and stories stay private until you mark them public." className="mt-6" padded>
-        <form className="grid gap-4 md:grid-cols-2" onSubmit={(event) => { event.preventDefault(); save() }}>
+        {error ? <p className="mb-3 text-sm text-destructive" role="alert">{error}</p> : null}
+        <form className="grid gap-4 md:grid-cols-2" onSubmit={(event) => { event.preventDefault(); void save() }}>
           <Label>Display name<Input className="mt-2" value={form.displayName} onChange={(event) => setForm({ ...form, displayName: event.target.value })} required /></Label>
           <Label>Education level
             <Select className="mt-2" value={form.level} onChange={(event) => setForm({ ...form, level: event.target.value as EducationLevel })}>
@@ -64,7 +84,7 @@ export function BeneficiaryManager({ initial }: { initial: Beneficiary[] }) {
             <label className="flex items-center justify-between rounded-xl border border-line px-4 py-3 text-sm"><span>Story visible</span><input className="size-4 accent-forest" type="checkbox" checked={form.storyVisible} onChange={(event) => setForm({ ...form, storyVisible: event.target.checked })} /></label>
           </div>
           <div className="flex gap-2">
-            <Button type="submit" className="rounded-full bg-brand text-white shadow-none hover:bg-brand-deep">{editing ? 'Update beneficiary' : 'Save beneficiary'}</Button>
+            <Button type="submit" className="rounded-full bg-brand text-white shadow-none hover:bg-brand-deep" disabled={pending}>{pending ? 'Saving…' : editing ? 'Update beneficiary' : 'Save beneficiary'}</Button>
             {editing && <Button type="button" variant="outline" className="rounded-full" onClick={() => { setEditing(null); setForm(empty) }}>Cancel</Button>}
           </div>
         </form>
@@ -99,6 +119,7 @@ export function BeneficiaryManager({ initial }: { initial: Beneficiary[] }) {
                     <div className="flex justify-end gap-1">
                       <Link href={`/sponsor/${item.id}`} className={actionClass}>View</Link>
                       <button type="button" className={actionClass} onClick={() => { setEditing(item.id); setForm({ displayName: item.displayName, level: item.level, school: item.school, location: item.location, story: item.story, needs: item.needs, target: String(item.target), publicProfile: item.publicProfile, publicImage: item.publicImage, storyVisible: item.storyVisible }) }}>Edit</button>
+                      <button type="button" className={actionClass} onClick={() => void remove(item.id)}>Delete</button>
                     </div>
                   </td>
                 </tr>

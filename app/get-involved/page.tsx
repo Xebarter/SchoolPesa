@@ -1,5 +1,7 @@
 import Link from 'next/link'
+import { ArrowRight } from 'lucide-react'
 import { PageHeader } from '@/components/page-header'
+import { Band, Flow } from '@/components/site/flow'
 import { SiteShell } from '@/components/site/shell'
 
 const options = [
@@ -15,17 +17,23 @@ export const metadata = { title: 'Get involved' }
 export default function Page() {
   return (
     <SiteShell>
-      <div className="mx-auto max-w-5xl px-5 py-16 lg:px-8">
-        <PageHeader eyebrow="Take part" title="Get involved" text="Give, sponsor, volunteer, partner or fundraise. Each path leads to a real education need." />
-        <div className="mt-10 grid gap-4 md:grid-cols-2">
-          {options.map(([title, text, href]) => (
-            <Link key={title} href={href} className="rounded-2xl border border-line bg-white p-6 hover:border-forest">
-              <h2 className="text-2xl font-semibold">{title}</h2>
-              <p className="mt-2 text-sage">{text}</p>
-            </Link>
-          ))}
-        </div>
-      </div>
+      <Band>
+        <Flow width="lg" className="py-16 lg:py-24">
+          <PageHeader eyebrow="Take part" title="Get involved" text="Give, sponsor, volunteer, partner or fundraise. Each path leads to a real education need." />
+          <div className="mt-14">
+            {options.map(([title, text, href], index) => (
+              <Link key={title} href={href} className="group grid grid-cols-[auto_1fr_auto] items-center gap-6 py-6">
+                <span className="text-sm font-semibold text-brand">{String(index + 1).padStart(2, '0')}</span>
+                <span>
+                  <h2 className="text-4xl font-semibold tracking-[-.04em] transition-colors group-hover:text-brand">{title}</h2>
+                  <p className="mt-1 text-sage">{text}</p>
+                </span>
+                <ArrowRight className="size-5 text-forest transition-transform group-hover:translate-x-1" />
+              </Link>
+            ))}
+          </div>
+        </Flow>
+      </Band>
     </SiteShell>
   )
 }

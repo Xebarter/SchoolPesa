@@ -1,10 +1,12 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 export function ShareLinks({ title, path }: { title: string; path: string }) {
   const [copied, setCopied] = useState(false)
-  const url = typeof window === 'undefined' ? path : `${window.location.origin}${path}`
+  const [origin, setOrigin] = useState('')
+  useEffect(() => { setOrigin(window.location.origin) }, [])
+  const url = origin ? `${origin}${path}` : path
   const encoded = encodeURIComponent(url)
   const text = encodeURIComponent(title)
   const links = [

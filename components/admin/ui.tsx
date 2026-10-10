@@ -3,10 +3,10 @@ import { cn } from '@/lib/utils'
 
 export function PageIntro({ title, description, children }: { title: string; description?: string; children?: ReactNode }) {
   return (
-    <div className="flex flex-wrap items-end justify-between gap-4">
-      <div className="max-w-2xl">
-        <h1 className="text-3xl font-semibold tracking-tight text-ink">{title}</h1>
-        {description ? <p className="mt-1.5 text-sm leading-6 text-sage">{description}</p> : null}
+    <div className="flex flex-wrap items-end justify-between gap-6">
+      <div className="grid min-w-0 flex-1 items-end gap-3 lg:grid-cols-[auto_minmax(0,18rem)] lg:gap-10">
+        <h1 className="text-4xl font-semibold tracking-[-.04em] text-ink">{title}</h1>
+        {description ? <p className="max-w-sm text-sm leading-6 text-sage lg:pb-1">{description}</p> : null}
       </div>
       {children ? <div className="flex flex-wrap items-center gap-2">{children}</div> : null}
     </div>
@@ -29,9 +29,9 @@ export function Panel({
   padded?: boolean
 }) {
   return (
-    <section className={cn('overflow-hidden rounded-2xl border border-line bg-white shadow-sm shadow-forest/5', className)}>
+    <section className={cn('overflow-hidden bg-mist', className)}>
       {(title || action) && (
-        <div className="flex flex-wrap items-start justify-between gap-3 border-b border-line px-5 py-4">
+        <div className="flex flex-wrap items-start justify-between gap-3 px-5 py-4">
           <div>
             {title ? <h2 className="text-sm font-semibold text-ink">{title}</h2> : null}
             {description ? <p className="mt-0.5 text-xs leading-5 text-sage">{description}</p> : null}
@@ -46,7 +46,7 @@ export function Panel({
 
 export function Metric({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
-    <div className="rounded-2xl border border-line bg-white p-5 shadow-sm shadow-forest/5">
+    <div className="bg-mist p-5">
       <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-sage">{label}</p>
       <p className="mt-2 text-3xl font-semibold tracking-tight text-forest">{value}</p>
       {hint ? <p className="mt-1 text-xs text-sage">{hint}</p> : null}
@@ -88,7 +88,7 @@ export function StatusPill({ value }: { value: string }) {
 
 export function TableFrame({ children }: { children: ReactNode }) {
   return (
-    <div className="overflow-hidden rounded-2xl border border-line bg-white shadow-sm shadow-forest/5">
+    <div className="overflow-hidden bg-mist">
       <div className="overflow-x-auto">{children}</div>
     </div>
   )
@@ -96,5 +96,5 @@ export function TableFrame({ children }: { children: ReactNode }) {
 
 export const thClass = 'whitespace-nowrap px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-[0.14em] text-sage'
 export const tdClass = 'px-4 py-3.5 align-middle text-sm text-ink'
-export const trClass = 'border-b border-line transition-colors last:border-0 hover:bg-[#f7faf8]'
+export const trClass = 'border-b border-line/70 transition-colors last:border-0 hover:bg-cream'
 export const actionClass = 'rounded-full px-2.5 py-1 text-xs font-semibold text-forest hover:bg-mist'

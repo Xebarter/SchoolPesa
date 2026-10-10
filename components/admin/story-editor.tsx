@@ -1,27 +1,52 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
+import { useRouter } from 'next/navigation'
 import { PageIntro, Panel, StatusPill, TableFrame, actionClass, tdClass, thClass, trClass } from '@/components/admin/ui'
 import { Button } from '@/components/ui/button'
 import { Input, Label, Select, Textarea } from '@/components/ui/input'
+import { deleteStory, updateStory } from '@/lib/admin-actions'
+import { createStory, toggleStoryStatus } from '@/lib/actions'
 import { formatDate } from '@/lib/format'
 import type { Story } from '@/lib/types'
 
+const blank = { title: '', category: 'Success Stories', body: '', status: 'draft' as Story['status'] }
+
 export function StoryEditor({ initial }: { initial: Story[] }) {
+  const router = useRouter()
   const [rows, setRows] = useState(initial)
-  const [form, setForm] = useState({ title: '', category: 'Success Stories', body: '', status: 'draft' as Story['status'] })
-  const [saved, setSaved] = useState(false)
+  const [form, setForm] = useState(blank)
+  const [editing, setEditing] = useState<string | null>(null)
+  const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
+  const [pending, setPending] = useState(false)
+  useEffect(() => { setRows(initial) }, [initial])
+
+  async function save(event: FormEvent) {
+    event.preventDefault()
+    if (pending) return
+    setPending(true)
+    setError('')
+    setNotice('')
+    try {
+      if (editing) await updateStory(editing, form)
+      else await createStory(form)
+      setForm(blank)
+      setEditing(null)
+      setNotice(editing ? 'Story updated.' : 'Story saved.')
+      router.refresh()
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'The story could not be saved.')
+    } finally {
+      setPending(false)
+    }
+  }
 
   return (
     <div>
-      <PageIntro title="Stories" description="Draft and publish impact stories. The body field stands in for a rich-text editor." />
-      <Panel title="Write a story" className="mt-6" padded>
-        <form className="grid gap-4" onSubmit={(event) => {
-          event.preventDefault()
-          setRows((current) => [{ id: `st-${Date.now()}`, slug: form.title.toLowerCase().replace(/[^a-z0-9]+/g, '-'), title: form.title, excerpt: form.body.slice(0, 140), body: form.body, category: form.category, author: 'School Pesa', date: '2026-10-03', image: '/school-pesa-hero.png', gallery: [], status: form.status, views: 0 }, ...current])
-          setSaved(true)
-          setForm({ title: '', category: 'Success Stories', body: '', status: 'draft' })
-        }}>
+      <PageIntro title="Stories" description="Draft, update and remove impact stories stored for the public site." />
+      <Panel title={editing ? 'Edit story' : 'Write a story'} className="mt-6" padded>
+        <form className="grid gap-4" onSubmit={save}>
           <div className="grid gap-4 md:grid-cols-2">
             <Label>Title<Input className="mt-2" value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} required /></Label>
             <Label>Category
@@ -37,9 +62,11 @@ export function StoryEditor({ initial }: { initial: Story[] }) {
               <option value="published">published</option>
             </Select>
           </Label>
+          {error ? <p className="text-sm text-destructive" role="alert">{error}</p> : null}
           <div className="flex items-center gap-3">
-            <Button type="submit" className="rounded-full bg-forest">Save story</Button>
-            {saved && <p role="status" className="text-sm text-forest">Story saved in this session.</p>}
+            <Button type="submit" className="rounded-full bg-forest" disabled={pending}>{pending ? 'Saving…' : editing ? 'Update story' : 'Save story'}</Button>
+            {editing ? <Button type="button" variant="outline" className="rounded-full" onClick={() => { setEditing(null); setForm(blank) }}>Cancel</Button> : null}
+            {notice ? <p role="status" className="text-sm text-forest">{notice}</p> : null}
           </div>
         </form>
       </Panel>
@@ -57,9 +84,17 @@ export function StoryEditor({ initial }: { initial: Story[] }) {
                   <td className={`${tdClass} text-sage`}>{formatDate(item.date)}</td>
                   <td className={tdClass}>{item.views.toLocaleString()}</td>
                   <td className={tdClass}>
-                    <button type="button" className={actionClass} onClick={() => setRows((current) => current.map((row) => row.id === item.id ? { ...row, status: row.status === 'published' ? 'draft' : 'published' } : row))}>
-                      {item.status === 'published' ? 'Unpublish' : 'Publish'}
-                    </button>
+                    <div className="flex justify-end gap-1">
+                      <button type="button" className={actionClass} onClick={() => { setEditing(item.id); setForm({ title: item.title, category: item.category, body: item.body, status: item.status }) }}>Edit</button>
+                      <button type="button" className={actionClass} onClick={() => {
+                        const next = item.status === 'published' ? 'draft' : 'published'
+                        void toggleStoryStatus(item.id, next).then(() => router.refresh())
+                        setRows((current) => current.map((row) => row.id === item.id ? { ...row, status: next } : row))
+                      }}>
+                        {item.status === 'published' ? 'Unpublish' : 'Publish'}
+                      </button>
+                      <button type="button" className={actionClass} onClick={() => void deleteStory(item.id).then(() => router.refresh())}>Delete</button>
+                    </div>
                   </td>
                 </tr>
               ))}

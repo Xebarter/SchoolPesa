@@ -104,13 +104,13 @@ export const events: EventItem[] = [
 ]
 
 export const faqs: Faq[] = [
-  { id: 'f1', topic: 'Donations', question: 'How do donations work?', answer: 'You choose an amount, who you want to support, and your contact details. School Pesa then prepares the gift for a payment provider. You review the details before any payment is requested.' },
+  { id: 'f1', topic: 'Donations', question: 'How do donations work?', answer: 'You choose an amount, who you want to support, and your contact details. School Pesa sends a mobile money prompt to your phone. The gift is confirmed when you approve it.' },
   { id: 'f2', topic: 'Funds', question: 'How are funds used?', answer: 'Gifts are allocated to a campaign or a learner’s stated education need: fees, books, uniforms, meals, technology or accommodation. Expenses are recorded against that allocation.' },
   { id: 'f3', topic: 'Sponsorship', question: 'What does sponsorship mean?', answer: 'Sponsoring a child means supporting a privacy-safe learner profile. You see a display name, education level, general location and the need. You do not see sensitive personal records.' },
   { id: 'f4', topic: 'Campaigns', question: 'How are campaigns chosen?', answer: 'Campaigns describe a practical education need with a target, a deadline and updates. Administrators can draft, publish, pause, complete or archive them.' },
-  { id: 'f5', topic: 'Payments', question: 'Which payment methods will be available?', answer: 'The donation screen is ready for a payment provider. Methods such as mobile money and card payments can be connected later without changing the donor flow.' },
-  { id: 'f6', topic: 'Receipts', question: 'Will I get a receipt?', answer: 'Successful gifts are listed in your donor dashboard with a receipt action. Receipt files will be generated when the payment provider is connected.' },
-  { id: 'f7', topic: 'Recurring', question: 'Can I give monthly?', answer: 'Yes. The donation flow lets you choose a one-time gift or a monthly gift. Monthly collection starts when a payment provider is connected.' },
+  { id: 'f5', topic: 'Payments', question: 'Which payment methods will be available?', answer: 'Gifts are collected by a mobile money prompt sent to the number you enter. Approve the prompt on your phone to complete the gift.' },
+  { id: 'f6', topic: 'Receipts', question: 'Will I get a receipt?', answer: 'Confirmed gifts appear in your donor dashboard. Open the receipt from that list after the payment is confirmed.' },
+  { id: 'f7', topic: 'Recurring', question: 'Can I give monthly?', answer: 'Yes. Choose a monthly gift and approve the prompt on your phone. Each collection uses the same mobile number.' },
   { id: 'f8', topic: 'Privacy', question: 'How is learner privacy protected?', answer: 'Public profiles use a display name and a general location. Photos and stories are published only when an administrator marks them as public.' },
   { id: 'f9', topic: 'Volunteering', question: 'How do I volunteer?', answer: 'Use the volunteer form to share your skills, availability and area of interest. The team reviews applications and replies by email.' },
 ]

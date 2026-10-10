@@ -4,9 +4,10 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useEffect, useState, type ComponentType } from 'react'
 import { createPortal } from 'react-dom'
-import { BookOpen, ChartColumn, GraduationCap, HandHeart, Home, Info, Megaphone, Menu, X } from 'lucide-react'
+import { BookOpen, ChartColumn, GraduationCap, HandHeart, Home, Info, Megaphone, Menu, UserRound, X } from 'lucide-react'
 import { Logo } from '@/components/site/logo'
 import { Button } from '@/components/ui/button'
+import { createBrowserClient } from '@/lib/supabase/client'
 import { cn } from '@/lib/utils'
 
 type Icon = ComponentType<{ className?: string }>
@@ -29,6 +30,29 @@ function isCurrent(pathname: string, href: string) {
 export function Navbar() {
   const pathname = usePathname()
   const [open, setOpen] = useState(false)
+  const [signedIn, setSignedIn] = useState(false)
+  const [avatar, setAvatar] = useState('')
+
+  useEffect(() => {
+    const supabase = createBrowserClient()
+    if (!supabase) return
+    let active = true
+    function apply(user: { user_metadata?: Record<string, unknown> } | null) {
+      if (!active) return
+      setSignedIn(Boolean(user))
+      const meta = user?.user_metadata
+      const photo = meta?.avatar_url ?? meta?.picture
+      setAvatar(typeof photo === 'string' ? photo : '')
+    }
+    void supabase.auth.getUser().then(({ data }) => apply(data.user))
+    const { data } = supabase.auth.onAuthStateChange((_event, session) => {
+      apply(session?.user ?? null)
+    })
+    return () => {
+      active = false
+      data.subscription.unsubscribe()
+    }
+  }, [])
 
   useEffect(() => {
     setOpen(false)
@@ -48,7 +72,7 @@ export function Navbar() {
   }, [open])
 
   return (
-    <header className="sticky top-0 z-40 border-b border-line bg-cream/95 backdrop-blur">
+    <header className="sticky top-0 z-40 bg-cream">
       <div className="mx-auto flex h-20 max-w-7xl items-center justify-between gap-4 px-5 lg:px-8">
         <Logo />
         <nav className="hidden items-center gap-5 xl:flex" aria-label="Primary">
@@ -59,8 +83,8 @@ export function Navbar() {
           ))}
         </nav>
         <div className="flex items-center gap-3">
-          <Link href="/login" className="hidden text-sm font-medium text-sage hover:text-ink sm:block">
-            Sign in
+          <Link href={signedIn ? '/dashboard' : '/login'} aria-label={signedIn ? 'Account' : 'Sign in'} className="grid size-10 place-items-center overflow-hidden rounded-full border border-line text-forest">
+            {avatar ? <img src={avatar} alt="" referrerPolicy="no-referrer" className="size-full object-cover" /> : <UserRound className="size-5" />}
           </Link>
           <Button nativeButton={false} render={<Link href="/donate" />} className="rounded-full bg-brand px-5 text-white shadow-none hover:bg-brand-deep">
             Donate
@@ -78,8 +102,8 @@ export function Navbar() {
       </div>
       {open && createPortal(
         <div className="fixed inset-0 z-50 xl:hidden">
-          <button type="button" className="absolute inset-0 bg-forest-deep/55 backdrop-blur-[2px]" aria-label="Close menu" onClick={() => setOpen(false)} />
-          <div role="dialog" aria-modal="true" aria-label="Site menu" className="absolute inset-y-0 right-0 flex w-[min(100%,22rem)] flex-col bg-forest-deep text-white shadow-2xl">
+          <button type="button" className="absolute inset-0 bg-ink/40" aria-label="Close menu" onClick={() => setOpen(false)} />
+          <div role="dialog" aria-modal="true" aria-label="Site menu" className="absolute inset-y-0 right-0 flex w-[min(100%,22rem)] flex-col bg-sky text-white">
             <div className="flex items-center justify-between border-b border-white/10 px-5 py-5">
               <Logo light />
               <button type="button" onClick={() => setOpen(false)} aria-label="Close menu" className="grid size-10 place-items-center rounded-full text-white hover:bg-white/10">
@@ -87,7 +111,7 @@ export function Navbar() {
               </button>
             </div>
             <div className="flex-1 overflow-y-auto px-3 py-5">
-              <p className="px-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-white/40">Explore</p>
+              <p className="px-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-white/45">Explore</p>
               <nav className="mt-3 flex flex-col gap-1" aria-label="Mobile">
                 {links.map((link) => {
                   const active = isCurrent(pathname, link.href)
@@ -97,7 +121,7 @@ export function Navbar() {
                       key={link.href}
                       href={link.href}
                       onClick={() => setOpen(false)}
-                      className={cn('flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium', active ? 'bg-white text-forest' : 'text-white/80 hover:bg-white/10 hover:text-white')}
+                      className={cn('flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium', active ? 'bg-white text-ink' : 'text-white/75 hover:bg-white/10 hover:text-white')}
                       aria-current={active ? 'page' : undefined}
                     >
                       <Icon className="size-4 shrink-0" />
@@ -108,11 +132,14 @@ export function Navbar() {
               </nav>
             </div>
             <div className="border-t border-white/10 p-5">
-              <Link href="/donate" onClick={() => setOpen(false)} className="flex h-11 items-center justify-center rounded-full bg-brand text-sm font-semibold text-white hover:bg-brand-deep">
+              <Link href="/donate" onClick={() => setOpen(false)} className="flex h-11 items-center justify-center rounded-full bg-white text-sm font-semibold text-ink hover:bg-cream">
                 Donate
               </Link>
-              <Link href="/login" onClick={() => setOpen(false)} className="mt-3 flex h-11 items-center justify-center rounded-full border border-white/15 text-sm font-semibold text-white hover:bg-white/10">
-                Sign in
+              <Link href={signedIn ? '/dashboard' : '/login'} onClick={() => setOpen(false)} className="mt-3 flex h-11 items-center justify-center gap-2 rounded-full border border-white/20 text-sm font-semibold text-white hover:bg-white/10">
+                <span className="grid size-6 place-items-center overflow-hidden rounded-full bg-white/15">
+                  {avatar ? <img src={avatar} alt="" referrerPolicy="no-referrer" className="size-full object-cover" /> : <UserRound className="size-3.5" />}
+                </span>
+                {signedIn ? 'Account' : 'Sign in'}
               </Link>
             </div>
           </div>

@@ -2,18 +2,18 @@
 
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 
-const colors = ['#e8793e', '#173b2a', '#f4b942', '#315c47']
+const colors = ['#1b4f78', '#8aabc2', '#e8e1d6', '#161d24']
 
 export function DonationsArea({ data }: { data: { month: string; amount: number }[] }) {
   return (
     <div className="h-64">
       <ResponsiveContainer width="100%" height="100%">
         <AreaChart data={data}>
-          <CartesianGrid stroke="#edf1ed" vertical={false} />
-          <XAxis dataKey="month" tick={{ fontSize: 12 }} stroke="#839087" />
-          <YAxis tick={{ fontSize: 12 }} stroke="#839087" />
+          <CartesianGrid stroke="#e4ddd4" vertical={false} />
+          <XAxis dataKey="month" tick={{ fontSize: 12 }} stroke="#66727c" />
+          <YAxis tick={{ fontSize: 12 }} stroke="#66727c" />
           <Tooltip />
-          <Area type="monotone" dataKey="amount" stroke="#e8793e" fill="#e8793e" fillOpacity={0.2} name="UGX millions" />
+          <Area type="monotone" dataKey="amount" stroke="#1b4f78" fill="#d5e1ea" fillOpacity={1} name="UGX millions" />
         </AreaChart>
       </ResponsiveContainer>
     </div>
@@ -25,11 +25,11 @@ export function CampaignBars({ data }: { data: { name: string; amount: number }[
     <div className="h-64">
       <ResponsiveContainer width="100%" height="100%">
         <BarChart data={data}>
-          <CartesianGrid stroke="#edf1ed" vertical={false} />
-          <XAxis dataKey="name" tick={{ fontSize: 11 }} stroke="#839087" />
-          <YAxis tick={{ fontSize: 12 }} stroke="#839087" />
+          <CartesianGrid stroke="#e4ddd4" vertical={false} />
+          <XAxis dataKey="name" tick={{ fontSize: 11 }} stroke="#66727c" />
+          <YAxis tick={{ fontSize: 12 }} stroke="#66727c" />
           <Tooltip />
-          <Bar dataKey="amount" fill="#173b2a" radius={8} name="UGX millions" />
+          <Bar dataKey="amount" fill="#1b4f78" radius={8} name="UGX millions" />
         </BarChart>
       </ResponsiveContainer>
     </div>

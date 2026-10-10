@@ -6,7 +6,7 @@ export function SiteShell({ children }: { children: ReactNode }) {
   return (
     <>
       <Navbar />
-      <main>{children}</main>
+      <main className="bg-cream">{children}</main>
       <Footer />
     </>
   )

@@ -1,66 +1,64 @@
 'use client'
 
-import { createBrowserClient, isSupabaseConfigured } from '@/lib/supabase/client'
+import { createBrowserClient } from '@/lib/supabase/client'
 
-const storageKey = 'schoolpesa-demo-user'
-
-export type DemoUser = { name: string; email: string }
-
-export function readDemoUser(): DemoUser | null {
-  if (typeof window === 'undefined') return null
-  const raw = window.localStorage.getItem(storageKey)
-  if (!raw) return null
-  try {
-    return JSON.parse(raw) as DemoUser
-  } catch {
-    return null
-  }
+function client() {
+  const supabase = createBrowserClient()
+  if (!supabase) throw new Error('Sign-in is not configured yet.')
+  return supabase
 }
 
-export function saveDemoUser(user: DemoUser) {
-  window.localStorage.setItem(storageKey, JSON.stringify(user))
+export function authRedirect(next = '/dashboard') {
+  const path = next.startsWith('/') && !next.startsWith('//') ? next : '/dashboard'
+  return `${window.location.origin}/auth/callback?next=${encodeURIComponent(path)}`
 }
 
-export function clearDemoUser() {
-  window.localStorage.removeItem(storageKey)
-}
-
-export async function signInWithPassword(email: string, password: string, name = 'Sarah') {
-  const client = createBrowserClient()
-  if (client && isSupabaseConfigured()) {
-    const { error } = await client.auth.signInWithPassword({ email, password })
-    if (error) throw error
-    return
-  }
-  if (!email || !password) throw new Error('Enter your email and password.')
-  saveDemoUser({ name, email })
+export async function signInWithPassword(email: string, password: string) {
+  const { error } = await client().auth.signInWithPassword({ email, password })
+  if (error) throw error
 }
 
 export async function signUp(name: string, email: string, password: string) {
-  const client = createBrowserClient()
-  if (client && isSupabaseConfigured()) {
-    const { error } = await client.auth.signUp({ email, password, options: { data: { name } } })
-    if (error) throw error
-    return
-  }
-  saveDemoUser({ name, email })
+  const { data, error } = await client().auth.signUp({
+    email,
+    password,
+    options: {
+      data: { name, full_name: name },
+      emailRedirectTo: authRedirect('/dashboard'),
+    },
+  })
+  if (error) throw error
+  return { confirmed: Boolean(data.session) }
 }
 
 export async function sendReset(email: string) {
-  const client = createBrowserClient()
-  if (client && isSupabaseConfigured()) {
-    const { error } = await client.auth.resetPasswordForEmail(email)
-    if (error) throw error
-  }
+  const { error } = await client().auth.resetPasswordForEmail(email, {
+    redirectTo: authRedirect('/reset-password'),
+  })
+  if (error) throw error
 }
 
-export async function signInWithGoogle() {
-  const client = createBrowserClient()
-  if (client && isSupabaseConfigured()) {
-    const { error } = await client.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: `${window.location.origin}/dashboard` } })
-    if (error) throw error
-    return
-  }
-  saveDemoUser({ name: 'Sarah', email: 'sarah@example.com' })
-  window.location.href = '/dashboard'
+export async function signInWithGoogle(next = '/dashboard') {
+  const { error } = await client().auth.signInWithOAuth({
+    provider: 'google',
+    options: { redirectTo: authRedirect(next) },
+  })
+  if (error) throw error
+}
+
+export async function updatePassword(password: string) {
+  const { error } = await client().auth.updateUser({ password })
+  if (error) throw error
+}
+
+export async function updateAccount(input: { name: string; phone: string }) {
+  const { error } = await client().auth.updateUser({
+    data: { name: input.name, full_name: input.name, phone: input.phone },
+  })
+  if (error) throw error
+}
+
+export async function signOut() {
+  const { error } = await client().auth.signOut()
+  if (error) throw error
 }

@@ -1,6 +1,18 @@
 import { Analytics } from '@vercel/analytics/next'
 import type { Metadata, Viewport } from 'next'
+import localFont from 'next/font/local'
 import './globals.css'
+
+const clarityCity = localFont({
+  src: [
+    { path: './fonts/ClarityCity-Regular.woff2', weight: '400', style: 'normal' },
+    { path: './fonts/ClarityCity-Medium.woff2', weight: '500', style: 'normal' },
+    { path: './fonts/ClarityCity-SemiBold.woff2', weight: '600', style: 'normal' },
+    { path: './fonts/ClarityCity-Bold.woff2', weight: '700', style: 'normal' },
+  ],
+  variable: '--font-clarity-city',
+  display: 'swap',
+})
 
 export const metadata: Metadata = {
   title: {
@@ -41,9 +53,11 @@ export const metadata: Metadata = {
   },
 }
 
+export const dynamic = 'force-dynamic'
+
 export const viewport: Viewport = {
   colorScheme: 'light',
-  themeColor: '#fbfcf8',
+  themeColor: '#f6f3ee',
 }
 
 export default function RootLayout({
@@ -52,8 +66,8 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="en">
-      <body className="antialiased">
+    <html lang="en" className={clarityCity.variable}>
+      <body className="font-sans antialiased">
         {children}
         {process.env.NODE_ENV === 'production' && <Analytics />}
       </body>

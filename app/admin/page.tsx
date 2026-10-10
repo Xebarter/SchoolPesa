@@ -1,15 +1,18 @@
 import { Metric, Panel, PageIntro, StatusPill } from '@/components/admin/ui'
 import { CampaignBars, DonationsArea, LevelDonut } from '@/components/charts'
-import { SampleNote } from '@/components/states'
-import { auditLogs, campaignBars, donationSeries, donations, impactStats, levelSplit } from '@/lib/data'
+import { getAuditLogs, getCampaignBars, getDonationSeries, getDonations, getImpact, getLevelSplit } from '@/lib/data'
 import { formatDate, formatUGX } from '@/lib/format'
 
 export default function Page() {
+  const impactStats = getImpact()
+  const donationSeries = getDonationSeries()
+  const campaignBars = getCampaignBars()
+  const levelSplit = getLevelSplit()
+  const donations = getDonations()
+  const auditLogs = getAuditLogs()
   return (
     <div>
-      <PageIntro title="Overview" description="Fundraising activity across campaigns, gifts and learners.">
-        <SampleNote />
-      </PageIntro>
+      <PageIntro title="Overview" description="Fundraising activity stored for campaigns, gifts and learners." />
       <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <Metric label="Total raised" value={formatUGX(impactStats.fundsRaised)} />
         <Metric label="This month" value={formatUGX(impactStats.thisMonth)} />

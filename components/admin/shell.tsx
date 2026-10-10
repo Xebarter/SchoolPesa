@@ -54,7 +54,7 @@ function Nav({ onNavigate, className }: { onNavigate?: () => void; className?: s
                   aria-current={active ? 'page' : undefined}
                   className={cn(
                     'flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition',
-                    active ? 'bg-white text-forest shadow-sm' : 'text-white/75 hover:bg-white/10 hover:text-white',
+                    active ? 'bg-white text-ink' : 'text-white/70 hover:bg-white/10 hover:text-white',
                   )}
                 >
                   <Icon className="size-4 shrink-0" />
@@ -100,28 +100,28 @@ export function AdminShell({ children }: { children: ReactNode }) {
   }, [open])
 
   return (
-    <div className="min-h-screen bg-[#f3f6f4] lg:grid lg:grid-cols-[17.5rem_1fr]">
+    <div className="min-h-screen bg-cream lg:grid lg:grid-cols-[17.5rem_1fr]">
       <aside className="sticky top-0 hidden h-screen flex-col bg-forest-deep lg:flex">
-        <div className="border-b border-white/10 px-5 py-5">
+        <div className="px-5 py-5">
           <Brand />
         </div>
         <div className="flex-1 overflow-y-auto px-3 py-5">
           <Nav />
         </div>
-        <div className="border-t border-white/10 p-4">
-          <div className="rounded-2xl bg-white/10 px-3 py-3">
+        <div className="p-4">
+          <div className="px-3 py-3">
             <p className="text-sm font-semibold text-white">Sarah Nakato</p>
             <p className="text-xs text-white/50">Super Admin</p>
           </div>
-          <Link href="/" className="mt-3 block px-3 text-xs font-semibold text-gold hover:text-white">View public site</Link>
+          <Link href="/" className="mt-3 block px-3 text-xs font-semibold text-white/70 hover:text-white">View public site</Link>
         </div>
       </aside>
 
       <div className="min-w-0">
-        <header className="sticky top-0 z-30 flex h-16 items-center gap-3 border-b border-line bg-white/95 px-4 backdrop-blur lg:px-8">
+        <header className="sticky top-0 z-30 flex h-16 items-center gap-3 bg-cream px-4 lg:px-8">
           <button
             type="button"
-            className="grid size-10 place-items-center rounded-xl border border-line text-forest lg:hidden"
+            className="grid size-10 place-items-center bg-mist text-forest lg:hidden"
             aria-label="Open menu"
             aria-expanded={open}
             onClick={() => setOpen(true)}
@@ -132,18 +132,18 @@ export function AdminShell({ children }: { children: ReactNode }) {
             <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-sage">Admin</p>
             <p className="truncate text-sm font-semibold text-ink">{title}</p>
           </div>
-          <Link href="/dashboard" className="rounded-full border border-line px-3 py-1.5 text-xs font-semibold text-forest hover:bg-mist">Donor view</Link>
+          <Link href="/dashboard" className="bg-mist px-3 py-1.5 text-xs font-semibold text-forest hover:bg-forest hover:text-white">Donor view</Link>
         </header>
-        <div className="px-4 py-6 lg:px-8 lg:py-8">{children}</div>
+        <div className="px-4 pb-8 pt-4 lg:px-8 lg:pb-10">{children}</div>
       </div>
 
       {open && (
         <div className="fixed inset-0 z-50 lg:hidden">
-          <button type="button" className="absolute inset-0 bg-forest-deep/50" aria-label="Close menu" onClick={() => setOpen(false)} />
-          <div role="dialog" aria-modal="true" aria-label="Admin menu" className="absolute inset-y-0 left-0 flex w-[min(100%,19rem)] flex-col bg-forest-deep shadow-2xl">
-            <div className="flex items-center justify-between border-b border-white/10 px-5 py-5">
+          <button type="button" className="absolute inset-0 bg-ink/40" aria-label="Close menu" onClick={() => setOpen(false)} />
+          <div role="dialog" aria-modal="true" aria-label="Admin menu" className="absolute inset-y-0 left-0 flex w-[min(100%,19rem)] flex-col bg-forest-deep">
+            <div className="flex items-center justify-between px-5 py-5">
               <Brand />
-              <button type="button" className="grid size-9 place-items-center rounded-full text-white" aria-label="Close menu" onClick={() => setOpen(false)}>
+              <button type="button" className="grid size-9 place-items-center rounded-full text-white hover:bg-white/10" aria-label="Close menu" onClick={() => setOpen(false)}>
                 <X className="size-5" />
               </button>
             </div>

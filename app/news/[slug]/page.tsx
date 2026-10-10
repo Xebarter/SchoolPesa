@@ -1,11 +1,12 @@
 import Image from 'next/image'
 import { notFound } from 'next/navigation'
+import { Band, Bridge, Flow } from '@/components/site/flow'
 import { SiteShell } from '@/components/site/shell'
-import { getNewsArticle, news } from '@/lib/data'
+import { getNews, getNewsArticle } from '@/lib/data'
 import { formatDate } from '@/lib/format'
 
 export function generateStaticParams() {
-  return news.map((article) => ({ slug: article.slug }))
+  return getNews().map((article) => ({ slug: article.slug }))
 }
 
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }) {
@@ -18,12 +19,24 @@ export default async function Page({ params }: { params: Promise<{ slug: string 
   if (!article) notFound()
   return (
     <SiteShell>
-      <article className="mx-auto max-w-3xl px-5 py-14">
-        <p className="text-sm font-semibold uppercase tracking-[.16em] text-brand">{article.category}</p>
-        <h1 className="mt-3 text-4xl font-semibold">{article.title}</h1>
-        <time className="mt-3 block text-sm text-sage" dateTime={article.date}>{formatDate(article.date)}</time>
-        <div className="relative mt-6 aspect-[1.6] overflow-hidden rounded-[2rem]"><Image src={article.image} alt="" fill className="object-cover" /></div>
-        <p className="mt-6 text-lg leading-8 text-sage">{article.body}</p>
+      <article>
+        <Band>
+          <Flow width="md" className="pb-20 pt-16 lg:pb-28 lg:pt-24">
+            <p className="text-sm font-semibold uppercase tracking-[.16em] text-brand">{article.category}</p>
+            <h1 className="mt-4 text-4xl font-semibold tracking-[-.045em] sm:text-6xl">{article.title}</h1>
+            <time className="mt-4 block text-sm text-sage" dateTime={article.date}>{formatDate(article.date)}</time>
+          </Flow>
+        </Band>
+        <div className="relative h-[24rem] bg-mist sm:h-[32rem]">
+          <Image src={article.image} alt="" fill priority className="object-cover" sizes="100vw" />
+        </div>
+        <Bridge>
+          <Band>
+            <Flow width="md" className="pb-20 pt-6 lg:pb-28">
+              <p className="text-lg leading-8 text-sage">{article.body}</p>
+            </Flow>
+          </Band>
+        </Bridge>
       </article>
     </SiteShell>
   )

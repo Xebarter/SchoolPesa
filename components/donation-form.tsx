@@ -1,11 +1,12 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { Check } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input, Label, Select, Textarea } from '@/components/ui/input'
-import { pendingPaymentProvider } from '@/lib/payments'
+import { ReceiptDownload } from '@/components/receipt-download'
+import { startDonation } from '@/lib/checkout-actions'
 import { formatUGX } from '@/lib/format'
 import type { Beneficiary, Campaign, CheckoutDraft, DonationFrequency, SupportTarget } from '@/lib/types'
 
@@ -15,18 +16,22 @@ export function DonationForm({ campaigns, beneficiaries }: { campaigns: Campaign
   const params = useSearchParams()
   const preset = campaigns.find((item) => item.slug === params.get('campaign'))
   const child = beneficiaries.find((item) => item.id === params.get('child'))
-  const [step, setStep] = useState(0)
   const [amount, setAmount] = useState('50000')
+  const [custom, setCustom] = useState(false)
   const [frequency, setFrequency] = useState<DonationFrequency>('one-time')
   const [supportTarget, setSupportTarget] = useState<SupportTarget>(child ? 'child' : preset ? 'campaign' : 'general')
+  const [picking, setPicking] = useState(false)
   const [campaignId, setCampaignId] = useState(preset?.id ?? campaigns[0]?.id ?? '')
   const [beneficiaryId, setBeneficiaryId] = useState(child?.id ?? beneficiaries[0]?.id ?? '')
+  const [anonymous, setAnonymous] = useState(true)
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
+  const [reason, setReason] = useState('')
   const [phone, setPhone] = useState('')
-  const [message, setMessage] = useState('')
-  const [anonymous, setAnonymous] = useState(false)
   const [reference, setReference] = useState('')
+  const [paymentState, setPaymentState] = useState('')
+  const [error, setError] = useState('')
+  const [submitting, setSubmitting] = useState(false)
 
   const draft: CheckoutDraft = useMemo(() => ({
     amount: Number(amount) || 0,
@@ -34,120 +39,167 @@ export function DonationForm({ campaigns, beneficiaries }: { campaigns: Campaign
     supportTarget,
     campaignId: supportTarget === 'campaign' ? campaignId : undefined,
     beneficiaryId: supportTarget === 'child' ? beneficiaryId : undefined,
-    name,
-    email,
+    name: anonymous ? '' : name,
+    email: anonymous ? '' : email,
     phone,
-    message,
+    message: anonymous ? '' : reason,
     anonymous,
-  }), [amount, frequency, supportTarget, campaignId, beneficiaryId, name, email, phone, message, anonymous])
+  }), [amount, frequency, supportTarget, campaignId, beneficiaryId, anonymous, name, email, reason, phone])
 
   const campaign = campaigns.find((item) => item.id === draft.campaignId)
   const beneficiary = beneficiaries.find((item) => item.id === draft.beneficiaryId)
-  const supportLabel = supportTarget === 'campaign' ? campaign?.title : supportTarget === 'child' ? beneficiary?.displayName : 'Education support where most needed'
+  const supportLabel = supportTarget === 'campaign' ? campaign?.title : supportTarget === 'child' ? beneficiary?.displayName : 'where it is needed most'
+  const ready = draft.amount >= 500 && phone.trim().length > 0 && (anonymous || (name.trim().length > 0 && reason.trim().length > 0))
 
-  async function prepare() {
-    const result = await pendingPaymentProvider.prepareCheckout(draft)
-    setReference(result.reference)
-    setStep(4)
+  async function prepare(event: FormEvent) {
+    event.preventDefault()
+    if (!ready || submitting) return
+    setSubmitting(true)
+    setError('')
+    try {
+      const result = await startDonation(draft)
+      setReference(result.reference)
+      setPaymentState('Processing')
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'The payment could not be started.')
+    } finally {
+      setSubmitting(false)
+    }
   }
 
-  if (step === 4) {
+  if (reference) {
+    const confirmed = paymentState === 'Successful'
+    const failed = paymentState === 'Failed' || paymentState === 'Cancelled'
     return (
-      <div className="mx-auto mt-12 max-w-xl rounded-3xl border border-[#cfe0d3] bg-mist p-10 text-center">
+      <div className="border border-line bg-white px-6 py-14 text-center shadow-[0_24px_60px_-36px_rgba(22,29,36,0.45)] sm:px-10">
         <span className="mx-auto grid size-14 place-items-center rounded-full bg-forest text-white"><Check /></span>
-        <h2 className="mt-5 text-2xl font-semibold text-forest">Thank you for supporting education.</h2>
-        <p className="mt-3 text-sage">Your {formatUGX(draft.amount)} {frequency} gift is ready for a secure payment provider. Reference {reference}.</p>
-        <p className="mt-2 text-sm text-sage">No charge has been made. A provider can complete this checkout later.</p>
-        <Button onClick={() => setStep(0)} className="mt-7 rounded-full bg-forest">Start another gift</Button>
+        <h2 className="mt-6 text-3xl font-semibold tracking-[-.03em] text-ink">{confirmed ? 'Your gift is confirmed.' : failed ? 'The payment was not completed.' : 'Approve the prompt on your phone.'}</h2>
+        <p className="mx-auto mt-4 max-w-sm leading-7 text-sage">
+          {anonymous ? 'This gift is anonymous. ' : ''}
+          {formatUGX(draft.amount)} {frequency === 'monthly' ? 'each month' : 'today'} for {supportLabel}.
+        </p>
+        <p className="mt-3 text-xs font-semibold uppercase tracking-[.14em] text-brand">Reference {reference}</p>
+        <p className="mx-auto mt-4 max-w-sm text-sm leading-6 text-sage">{confirmed ? 'Your receipt has been saved to this device.' : failed ? 'You can start the gift again with the same details.' : 'Enter your mobile money PIN when the prompt arrives. Your receipt is downloading now.'}</p>
+        <PaymentWatch reference={reference} onStatus={setPaymentState} />
+        {failed ? null : <ReceiptDownload reference={reference} />}
+        <Button onClick={() => { setReference(''); setPaymentState('') }} className="mt-3 h-11 rounded-full bg-forest px-6 text-white shadow-none hover:bg-brand-deep">Give again</Button>
       </div>
     )
   }
 
   return (
-    <div className="mx-auto mt-12 max-w-xl rounded-3xl border border-line bg-white p-6 shadow-xl shadow-forest/5 sm:p-9">
-      <p className="text-xs font-semibold uppercase tracking-wider text-sage">Step {step + 1} of 4</p>
-      {step === 0 && (
-        <div>
-          <h2 className="text-xl font-semibold">Choose your contribution</h2>
-          <div className="mt-4 flex gap-2">
-            {(['one-time', 'monthly'] as const).map((item) => (
-              <button key={item} type="button" onClick={() => setFrequency(item)} className={`rounded-full px-4 py-2 text-sm font-semibold ${frequency === item ? 'bg-forest text-white' : 'border border-line text-sage'}`}>{item === 'one-time' ? 'One-time' : 'Monthly'}</button>
-            ))}
-          </div>
-          <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
-            {amounts.map((value) => (
-              <button key={value} type="button" onClick={() => setAmount(String(value))} className={`rounded-xl border py-3 text-sm font-semibold ${amount === String(value) ? 'border-brand bg-[#fff4ed] text-brand-deep' : 'border-line text-sage'}`}>
-                {formatUGX(value)}
-              </button>
-            ))}
-          </div>
-          <Label className="mt-4 block">Other amount
-            <Input className="mt-2" inputMode="numeric" value={amount} onChange={(event) => setAmount(event.target.value)} />
-          </Label>
+    <form className="border border-line bg-white p-6 shadow-[0_24px_60px_-36px_rgba(22,29,36,0.45)] sm:p-8" onSubmit={prepare}>
+      <div className="flex items-end justify-between gap-4">
+        <p className="text-xs font-semibold uppercase tracking-[.16em] text-brand">Amount</p>
+        <div className="flex rounded-full bg-cream p-1">
+          {(['one-time', 'monthly'] as const).map((item) => (
+            <button key={item} type="button" onClick={() => setFrequency(item)} className={`rounded-full px-3.5 py-1.5 text-sm font-semibold transition-colors ${frequency === item ? 'bg-white text-ink shadow-sm' : 'text-sage hover:text-ink'}`}>{item === 'one-time' ? 'One-time' : 'Monthly'}</button>
+          ))}
         </div>
+      </div>
+
+      <div className="mt-4 grid grid-cols-2 gap-2">
+        {amounts.map((value) => (
+          <button key={value} type="button" onClick={() => { setAmount(String(value)); setCustom(false) }} className={`border py-4 text-lg font-semibold tracking-[-.02em] transition-colors ${!custom && amount === String(value) ? 'border-brand bg-brand text-white' : 'border-line bg-cream text-ink hover:border-brand hover:text-brand'}`}>
+            {formatUGX(value)}
+          </button>
+        ))}
+      </div>
+      {custom ? (
+        <Label className="mt-3 block">Amount in UGX
+          <Input className="mt-2" inputMode="numeric" autoFocus value={amount} onChange={(event) => setAmount(event.target.value.replace(/[^\d]/g, ''))} />
+        </Label>
+      ) : (
+        <button type="button" className="mt-3 text-sm font-semibold text-forest hover:text-brand" onClick={() => { setCustom(true); setAmount('') }}>Enter another amount</button>
       )}
-      {step === 1 && (
-        <div>
-          <h2 className="text-xl font-semibold">Who would you like to support?</h2>
-          <div className="mt-4 flex flex-col gap-2">
-            {[
-              ['campaign', 'This campaign'],
-              ['child', 'A specific child'],
-              ['general', 'Education support where most needed'],
-            ].map(([value, label]) => (
-              <label key={value} className="flex items-center gap-3 rounded-xl border border-line px-4 py-3 text-sm">
-                <input type="radio" name="support" checked={supportTarget === value} onChange={() => setSupportTarget(value as SupportTarget)} />
-                {label}
-              </label>
-            ))}
-          </div>
-          {supportTarget === 'campaign' && (
-            <Label className="mt-4 block">Campaign
-              <Select className="mt-2" value={campaignId} onChange={(event) => setCampaignId(event.target.value)}>
+
+      <div className="mt-8 border-t border-line pt-8">
+        <p className="text-xs font-semibold uppercase tracking-[.16em] text-brand">Mobile money</p>
+        <Label className="mt-4 block">Number for the payment prompt
+          <Input className="mt-2 h-12 text-base" inputMode="tel" autoComplete="tel" required placeholder="07XX XXX XXX" value={phone} onChange={(event) => setPhone(event.target.value)} />
+        </Label>
+      </div>
+
+      <div className="mt-8 border-t border-line pt-8">
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-xs font-semibold uppercase tracking-[.16em] text-brand">Directed to</p>
+          {supportTarget === 'general' && !picking ? (
+            <button type="button" className="text-sm font-semibold text-forest hover:text-brand" onClick={() => { setPicking(true); setSupportTarget('campaign') }}>Choose</button>
+          ) : (
+            <button type="button" className="text-sm font-semibold text-forest hover:text-brand" onClick={() => { setSupportTarget('general'); setPicking(false) }}>Where needed</button>
+          )}
+        </div>
+        <p className="mt-3 font-semibold text-ink">{supportLabel === 'where it is needed most' ? 'Education support where it is needed most' : supportLabel}</p>
+        {picking && (
+          <div className="mt-4">
+            <div className="flex gap-2">
+              <button type="button" onClick={() => setSupportTarget('campaign')} className={`rounded-full px-4 py-2 text-sm font-semibold ${supportTarget === 'campaign' ? 'bg-forest text-white' : 'bg-cream text-sage'}`}>Campaign</button>
+              <button type="button" onClick={() => setSupportTarget('child')} className={`rounded-full px-4 py-2 text-sm font-semibold ${supportTarget === 'child' ? 'bg-forest text-white' : 'bg-cream text-sage'}`}>Child</button>
+            </div>
+            {supportTarget === 'campaign' && (
+              <Select className="mt-3" value={campaignId} onChange={(event) => setCampaignId(event.target.value)} aria-label="Campaign">
                 {campaigns.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}
               </Select>
-            </Label>
-          )}
-          {supportTarget === 'child' && (
-            <Label className="mt-4 block">Learner
-              <Select className="mt-2" value={beneficiaryId} onChange={(event) => setBeneficiaryId(event.target.value)}>
+            )}
+            {supportTarget === 'child' && (
+              <Select className="mt-3" value={beneficiaryId} onChange={(event) => setBeneficiaryId(event.target.value)} aria-label="Learner">
                 {beneficiaries.map((item) => <option key={item.id} value={item.id}>{item.displayName} · {item.level}</option>)}
               </Select>
-            </Label>
-          )}
-        </div>
-      )}
-      {step === 2 && (
-        <div className="flex flex-col gap-4">
-          <h2 className="text-xl font-semibold">Your details</h2>
-          <Label>Name<Input className="mt-2" required value={name} onChange={(event) => setName(event.target.value)} /></Label>
-          <Label>Email<Input className="mt-2" type="email" required value={email} onChange={(event) => setEmail(event.target.value)} /></Label>
-          <Label>Phone<Input className="mt-2" value={phone} onChange={(event) => setPhone(event.target.value)} /></Label>
-          <Label>Optional message<Textarea className="mt-2" value={message} onChange={(event) => setMessage(event.target.value)} /></Label>
-          <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={anonymous} onChange={(event) => setAnonymous(event.target.checked)} /> Make my donation anonymous</label>
-        </div>
-      )}
-      {step === 3 && (
-        <div>
-          <h2 className="text-xl font-semibold">Review before payment</h2>
-          <dl className="mt-4 space-y-2 text-sm">
-            <div className="flex justify-between"><dt className="text-sage">Amount</dt><dd className="font-semibold">{formatUGX(draft.amount)} · {frequency}</dd></div>
-            <div className="flex justify-between"><dt className="text-sage">Support</dt><dd className="font-semibold">{supportLabel}</dd></div>
-            <div className="flex justify-between"><dt className="text-sage">Donor</dt><dd className="font-semibold">{anonymous ? 'Anonymous' : name}</dd></div>
-            <div className="flex justify-between"><dt className="text-sage">Email</dt><dd>{email}</dd></div>
-          </dl>
-          <p className="mt-4 text-xs text-sage">Continue prepares this gift for a payment provider. School Pesa does not charge a card on this screen.</p>
-        </div>
-      )}
-      <div className="mt-6 flex gap-3">
-        {step > 0 && <Button variant="outline" className="rounded-full" onClick={() => setStep((value) => value - 1)}>Back</Button>}
-        {step < 3 && (
-          <Button className="rounded-full bg-brand text-white shadow-none hover:bg-brand-deep" onClick={() => setStep((value) => value + 1)} disabled={step === 0 && Number(amount) <= 0 || (step === 2 && (!name || !email))}>
-            Continue
-          </Button>
+            )}
+          </div>
         )}
-        {step === 3 && <Button className="rounded-full bg-brand text-white shadow-none hover:bg-brand-deep" onClick={prepare}>Continue to payment</Button>}
+        {supportTarget !== 'general' && !picking ? (
+          <button type="button" className="mt-3 text-sm font-semibold text-forest hover:text-brand" onClick={() => setPicking(true)}>Change</button>
+        ) : null}
       </div>
-    </div>
+
+      <div className="mt-8 border-t border-line pt-8">
+        <button
+          type="button"
+          aria-pressed={anonymous}
+          onClick={() => setAnonymous((value) => !value)}
+          className="flex w-full items-center justify-between gap-4 text-left"
+        >
+          <span>
+            <span className="block text-sm font-semibold text-ink">Give anonymously</span>
+            <span className="mt-1 block text-sm text-sage">{anonymous ? 'Your name stays private.' : 'Your name and reason are recorded with the gift. Email is optional.'}</span>
+          </span>
+          <span className={`relative h-7 w-12 shrink-0 rounded-full transition-colors ${anonymous ? 'bg-forest' : 'bg-line'}`}>
+            <span className={`absolute top-0.5 size-6 rounded-full bg-white transition-transform ${anonymous ? 'left-5' : 'left-0.5'}`} />
+          </span>
+        </button>
+
+        {!anonymous && (
+          <div className="mt-5 flex flex-col gap-4">
+            <Label>Name<Input className="mt-2" required value={name} onChange={(event) => setName(event.target.value)} autoComplete="name" /></Label>
+            <Label>Email <span className="font-normal text-sage">(optional)</span><Input className="mt-2" type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" /></Label>
+            <Label>Reason for this gift<Textarea className="mt-2" required value={reason} onChange={(event) => setReason(event.target.value)} placeholder="What moved you to give?" /></Label>
+          </div>
+        )}
+      </div>
+
+      {error ? <p className="mt-4 text-sm text-ink" role="alert">{error}</p> : null}
+
+      <Button type="submit" className="mt-8 h-12 w-full rounded-full bg-brand text-base text-white shadow-none hover:bg-brand-deep" disabled={!ready || submitting}>
+        {submitting ? 'Sending prompt…' : `Donate ${draft.amount > 0 ? formatUGX(draft.amount) : ''}`}
+      </Button>
+      <p className="mt-3 text-center text-xs leading-5 text-sage">Approve the prompt on your phone to complete the gift.</p>
+    </form>
   )
+}
+
+function PaymentWatch({ reference, onStatus }: { reference: string; onStatus: (status: string) => void }) {
+  useEffect(() => {
+    let stopped = false
+    async function look() {
+      const response = await fetch(`/api/payments/status?reference=${encodeURIComponent(reference)}`)
+      if (!response.ok || stopped) return
+      const body = await response.json() as { status?: string }
+      if (body.status) onStatus(body.status)
+      if (body.status === 'Successful' || body.status === 'Failed' || body.status === 'Cancelled' || body.status === 'Refunded') stopped = true
+    }
+    const timer = setInterval(look, 4000)
+    return () => { stopped = true; clearInterval(timer) }
+  }, [reference, onStatus])
+  return null
 }

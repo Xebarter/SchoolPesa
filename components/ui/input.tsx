@@ -2,7 +2,7 @@ import type { ComponentProps } from 'react'
 import { cn } from '@/lib/utils'
 
 export const fieldClass =
-  'h-11 w-full rounded-xl border border-line bg-white px-3 text-sm text-ink outline-none placeholder:text-sage/70 focus-visible:ring-2 focus-visible:ring-gold'
+  'h-11 w-full rounded-xl border border-line bg-white px-3 text-sm text-ink outline-none placeholder:text-sage/70 focus-visible:ring-2 focus-visible:ring-brand'
 
 export function Input({ className, ...props }: ComponentProps<'input'>) {
   return <input className={cn(fieldClass, className)} {...props} />
