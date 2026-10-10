@@ -16,6 +16,7 @@ __v0_jsx-dev-runtime.ts
 node_modules
 .next/
 data/avatars/
+data/gallery/
 data/*.db
 data/*.db-*
 .DS_Store

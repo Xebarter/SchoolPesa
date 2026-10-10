@@ -2,6 +2,7 @@ import Image from 'next/image'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { ShareLinks } from '@/components/share-links'
+import { StoryBody } from '@/components/story-body'
 import { Band, Bridge, Flow } from '@/components/site/flow'
 import { SiteShell } from '@/components/site/shell'
 import { Button } from '@/components/ui/button'
@@ -38,7 +39,7 @@ export default async function Page({ params }: { params: Promise<{ slug: string 
         <Bridge>
           <Band>
             <Flow width="md" className="pb-16 pt-6 lg:pb-24">
-              {story.body.split('\n\n').map((paragraph) => <p key={paragraph.slice(0, 24)} className="mt-6 text-lg leading-8 text-sage">{paragraph}</p>)}
+              <StoryBody body={story.body} />
               {story.gallery.length > 0 && (
                 <div className="mt-10 grid gap-3 sm:grid-cols-2">
                   {story.gallery.map((src, index) => <div key={index} className="relative aspect-[1.3] overflow-hidden bg-mist"><Image src={src} alt="" fill className="object-cover" sizes="40vw" /></div>)}

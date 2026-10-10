@@ -370,7 +370,7 @@ export function CampaignManager({ initial, beneficiaries }: { initial: Campaign[
       ) : null}
 
       <Dialog open={Boolean(removing)} title="Remove campaign" onClose={() => { if (!pending) setRemoving(null) }}>
-        <p className="text-sm leading-6 text-sage">Remove {removing?.title}? Gifts, stories, and expenses stay on record. The campaign leaves the public site.</p>
+        <p className="text-sm leading-6 text-sage">Remove “{removing?.title}”? Gifts, stories, and expenses stay on record. The campaign leaves the public site.</p>
         <div className="mt-4 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
           <Button type="button" variant="outline" className="h-11 rounded-full" disabled={pending} onClick={() => setRemoving(null)}>Keep campaign</Button>
           <Button type="button" variant="destructive" className="h-11 rounded-full" disabled={pending} onClick={() => void confirmRemove()}>{pending ? 'Removing…' : 'Remove campaign'}</Button>

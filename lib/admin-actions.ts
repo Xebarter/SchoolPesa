@@ -4,7 +4,7 @@ import { revalidatePath } from 'next/cache'
 import { getDb, syncCampaignImpact } from '@/lib/db'
 import { formatUGX } from '@/lib/format'
 import { alertDonor, alertFollowers } from '@/lib/notify'
-import type { CampaignStatus, DonationStatus, Expense, Story, Volunteer } from '@/lib/types'
+import type { CampaignStatus, Expense, Story, Volunteer } from '@/lib/types'
 
 function id(prefix: string) {
   return `${prefix}-${Date.now().toString(36)}`
@@ -28,7 +28,7 @@ function audit(user: string, action: string, resource: string, details: string) 
 }
 
 function touch() {
-  for (const path of ['/admin', '/admin/campaigns', '/admin/beneficiaries', '/admin/donations', '/admin/stories', '/admin/gallery', '/admin/finance', '/admin/people', '/admin/users', '/admin/content', '/admin/settings', '/admin/reports', '/admin/audit-logs', '/admin/updates', '/campaigns', '/stories', '/gallery', '/news', '/events', '/sponsor', '/impact', '/dashboard/updates', '/dashboard/notifications']) {
+  for (const path of ['/admin', '/admin/campaigns', '/admin/beneficiaries', '/admin/donations', '/admin/stories', '/admin/gallery', '/admin/finance', '/admin/people', '/admin/users', '/admin/content', '/admin/settings', '/admin/reports', '/admin/audit-logs', '/admin/updates', '/campaigns', '/stories', '/gallery', '/news', '/events', '/sponsor', '/impact', '/dashboard', '/dashboard/donations', '/dashboard/receipts', '/dashboard/updates', '/dashboard/notifications']) {
     revalidatePath(path)
   }
 }
@@ -212,34 +212,71 @@ export async function deleteBeneficiary(beneficiaryId: string) {
   touch()
 }
 
-export async function createAdminDonation(input: { donorName: string; email: string; amount: number; campaignId?: string; status: DonationStatus; message: string }) {
-  if (!Number.isFinite(input.amount) || input.amount < 500) throw new Error('Enter an amount of at least 500 UGX.')
+type GiftInput = {
+  donorName: string
+  email: string
+  phone: string
+  amount: number
+  method: string
+  date: string
+  campaignId?: string
+  beneficiaryId?: string
+  message: string
+}
+
+const giftMethods = ['Bank transfer', 'Cash', 'Mobile money', 'Cheque']
+
+function giftFields(input: GiftInput) {
+  const donorName = input.donorName.trim()
+  const email = input.email.trim().toLowerCase()
+  const phone = input.phone.trim()
+  const amount = Math.round(Number(input.amount))
+  const date = input.date.trim()
+  const method = input.method.trim()
+  if (!donorName) throw new Error('Add the donor name.')
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error('Enter a valid email address.')
+  if (!Number.isFinite(amount) || amount < 500) throw new Error('Enter an amount of at least 500 UGX.')
+  if (!giftMethods.includes(method)) throw new Error('Choose how the gift was received.')
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error('Choose the date the gift was received.')
+  const campaignId = input.campaignId?.trim() || null
+  const beneficiaryId = input.beneficiaryId?.trim() || null
+  const db = getDb()
+  if (campaignId && !db.prepare('SELECT id FROM campaigns WHERE id = ?').get(campaignId)) throw new Error('That campaign is not on file.')
+  if (beneficiaryId && !db.prepare('SELECT id FROM beneficiaries WHERE id = ?').get(beneficiaryId)) throw new Error('That learner is not on file.')
+  const support = beneficiaryId ? 'child' : campaignId ? 'campaign' : 'general'
+  return { donorName, email, phone, amount, date, method, campaignId, beneficiaryId, support, message: input.message.trim() }
+}
+
+export async function createAdminDonation(input: GiftInput) {
+  const fields = giftFields(input)
   const donationId = id('d')
   const reference = `ADM-${Date.now().toString(36).toUpperCase()}`
-  const today = new Date().toISOString().slice(0, 10)
   const db = getDb()
-  db.prepare(`INSERT INTO donations (id, donor_name, anonymous, email, phone, amount, frequency, campaign_id, beneficiary_id, support_target, method, transaction_id, date, status, message)
-    VALUES (?, ?, 0, ?, '', ?, 'one-time', ?, NULL, ?, 'Recorded', ?, ?, ?, ?)`).run(
-    donationId, input.donorName || 'Donor', input.email, input.amount, input.campaignId || null, input.campaignId ? 'campaign' : 'general', reference, today, input.status, input.message || null,
+  db.prepare(`INSERT INTO donations (id, donor_name, anonymous, email, phone, amount, frequency, campaign_id, beneficiary_id, support_target, method, transaction_id, date, status, message, created_at)
+    VALUES (?, ?, 0, ?, ?, ?, 'one-time', ?, ?, ?, ?, ?, ?, 'Successful', ?, ?)`).run(
+    donationId, fields.donorName, fields.email, fields.phone, fields.amount, fields.campaignId, fields.beneficiaryId, fields.support, fields.method, reference, fields.date, fields.message || null, new Date().toISOString(),
   )
   db.prepare('INSERT INTO transactions (id, donation_id, provider, reference, amount, status, date) VALUES (?, ?, ?, ?, ?, ?, ?)').run(
-    id('pt'), donationId, 'Recorded', reference, input.amount, input.status, today,
+    id('pt'), donationId, fields.method, reference, fields.amount, 'Successful', fields.date,
   )
-  if (input.status === 'Successful') moveRaised({ id: donationId, amount: input.amount, campaign_id: input.campaignId || null, beneficiary_id: null, status: 'Pending' }, 'Successful')
-  alertDonor(input.email, { title: input.status === 'Successful' ? 'Gift confirmed' : 'Gift recorded', body: `${formatUGX(input.amount)} is ${input.status.toLowerCase()}. Reference ${reference}.`, kind: 'gift', href: input.status === 'Successful' ? '/dashboard/receipts' : '/dashboard/donations' })
+  moveRaised({ id: donationId, amount: fields.amount, campaign_id: fields.campaignId, beneficiary_id: fields.beneficiaryId, status: 'Pending' }, 'Successful')
+  alertDonor(fields.email, { title: 'Gift confirmed', body: `${formatUGX(fields.amount)} is confirmed. Reference ${reference}.`, kind: 'gift', href: '/dashboard/receipts' })
   audit('Finance Admin', 'created', 'Donation', `Recorded gift ${reference}`)
   touch()
 }
 
-export async function setDonationStatus(donationId: string, status: DonationStatus) {
+export async function updateAdminDonation(donationId: string, input: GiftInput) {
+  const fields = giftFields(input)
   const db = getDb()
-  const row = db.prepare('SELECT id, amount, campaign_id, beneficiary_id, status, email FROM donations WHERE id = ?').get(donationId) as (GiftRow & { email?: string }) | undefined
+  const row = db.prepare('SELECT id, amount, campaign_id, beneficiary_id, status FROM donations WHERE id = ?').get(donationId) as GiftRow | undefined
   if (!row) throw new Error('Gift was not found.')
-  moveRaised(row, status)
-  if (row.email && row.status !== status) alertDonor(row.email, { title: status === 'Successful' ? 'Gift confirmed' : `Gift ${status.toLowerCase()}`, body: `A gift on your account is now ${status.toLowerCase()}.`, kind: 'gift', href: status === 'Successful' ? '/dashboard/receipts' : '/dashboard/donations' })
-  db.prepare('UPDATE donations SET status = ? WHERE id = ?').run(status, donationId)
-  db.prepare('UPDATE transactions SET status = ? WHERE donation_id = ?').run(status, donationId)
-  audit('Finance Admin', 'updated', 'Donation', `Set gift ${donationId} to ${status}`)
+  if (row.status === 'Successful') moveRaised(row, 'Cancelled')
+  db.prepare(`UPDATE donations SET donor_name = ?, email = ?, phone = ?, amount = ?, method = ?, date = ?, campaign_id = ?, beneficiary_id = ?, support_target = ?, message = ? WHERE id = ?`).run(
+    fields.donorName, fields.email, fields.phone, fields.amount, fields.method, fields.date, fields.campaignId, fields.beneficiaryId, fields.support, fields.message || null, donationId,
+  )
+  db.prepare('UPDATE transactions SET provider = ?, amount = ?, date = ? WHERE donation_id = ?').run(fields.method, fields.amount, fields.date, donationId)
+  if (row.status === 'Successful') moveRaised({ ...row, amount: fields.amount, campaign_id: fields.campaignId, beneficiary_id: fields.beneficiaryId, status: 'Pending' }, 'Successful')
+  audit('Finance Admin', 'updated', 'Donation', `Updated gift for ${fields.donorName}`)
   touch()
 }
 
@@ -264,18 +301,116 @@ export async function updateStory(storyId: string, input: { title: string; body:
 }
 
 export async function deleteStory(storyId: string) {
-  const result = getDb().prepare('DELETE FROM stories WHERE id = ?').run(storyId)
-  missing(result, 'Story')
-  audit('Content Manager', 'deleted', 'Story', `Removed story ${storyId}`)
+  const db = getDb()
+  const existing = db.prepare('SELECT title FROM stories WHERE id = ?').get(storyId) as { title: string } | undefined
+  if (!existing) throw new Error('Story was not found.')
+  db.prepare('UPDATE gallery SET story_id = NULL WHERE story_id = ?').run(storyId)
+  db.prepare('DELETE FROM stories WHERE id = ?').run(storyId)
+  audit('Content Manager', 'deleted', 'Story', `Removed story "${existing.title}"`)
+  revalidatePath('/stories/[slug]', 'page')
   touch()
 }
 
-export async function updateGalleryItem(itemId: string, input: { alt: string; caption: string; category: string; campaignId?: string; storyId?: string }) {
-  const result = getDb().prepare('UPDATE gallery SET alt = ?, caption = ?, category = ?, campaign_id = ?, story_id = ? WHERE id = ?').run(
-    input.alt, input.caption, input.category, input.campaignId || null, input.storyId || null, itemId,
+const storyStatuses = new Set(['draft', 'published'])
+const storyCategories = ['Success Stories', 'Scholarships', 'School Requirements', 'Community', 'Students', 'Events']
+
+export async function saveStory(input: {
+  id?: string
+  title: string
+  body: string
+  excerpt: string
+  category: string
+  author: string
+  image: string
+  status: string
+  campaignId?: string
+  beneficiaryId?: string
+}) {
+  const title = input.title.trim()
+  const body = input.body.replace(/\r\n/g, '\n').trim()
+  if (!title) throw new Error('Add a title.')
+  if (!body) throw new Error('Write the story.')
+  if (!storyStatuses.has(input.status)) throw new Error('Choose a status.')
+  const category = storyCategories.includes(input.category) ? input.category : 'Success Stories'
+  const author = input.author.trim() || 'School Pesa'
+  const image = input.image.trim() || '/school-pesa-hero.png'
+  if (!image.startsWith('/')) throw new Error('Use a photo already on the site, starting with /.')
+  const plain = body.replace(/\*\*([^*\n]+)\*\*/g, '$1').replace(/\*([^*\n]+)\*/g, '$1').replace(/\[([^\]\n]+)\]\(https?:\/\/[^\s)]+\)/g, '$1').replace(/^##\s+/gm, '').replace(/^>\s+/gm, '').replace(/^- /gm, '').replace(/\s+/g, ' ').trim()
+  const excerpt = input.excerpt.trim() || plain.slice(0, 140)
+  const db = getDb()
+  const campaignId = input.campaignId?.trim() || null
+  const beneficiaryId = input.beneficiaryId?.trim() || null
+  if (campaignId && !db.prepare('SELECT id FROM campaigns WHERE id = ?').get(campaignId)) throw new Error('That campaign is not on file.')
+  if (beneficiaryId && !db.prepare('SELECT id FROM beneficiaries WHERE id = ?').get(beneficiaryId)) throw new Error('That learner is not on file.')
+  const base = slugify(title)
+  let slug = base
+  let suffix = 2
+  while (db.prepare('SELECT id FROM stories WHERE slug = ? AND id != ?').get(slug, input.id ?? '')) slug = `${base}-${suffix++}`
+  if (input.id) {
+    const result = db.prepare('UPDATE stories SET slug = ?, title = ?, excerpt = ?, body = ?, category = ?, author = ?, image = ?, campaign_id = ?, beneficiary_id = ?, status = ? WHERE id = ?').run(
+      slug, title, excerpt, body, category, author, image, campaignId, beneficiaryId, input.status, input.id,
+    )
+    missing(result, 'Story')
+    audit('Content Manager', 'updated', 'Story', `Updated story "${title}"`)
+  } else {
+    const today = new Date().toISOString().slice(0, 10)
+    db.prepare(`INSERT INTO stories (id, slug, title, excerpt, body, category, author, date, image, gallery, campaign_id, beneficiary_id, status, views)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', ?, ?, ?, 0)`).run(
+      id('st'), slug, title, excerpt, body, category, author, today, image, campaignId, beneficiaryId, input.status,
+    )
+    audit('Content Manager', 'created', 'Story', `Saved story "${title}"`)
+  }
+  revalidatePath('/stories/[slug]', 'page')
+  touch()
+}
+
+export async function setStoryStatus(storyId: string, status: string) {
+  if (!storyStatuses.has(status)) throw new Error('Choose a status.')
+  const existing = getDb().prepare('SELECT title FROM stories WHERE id = ?').get(storyId) as { title: string } | undefined
+  if (!existing) throw new Error('Story was not found.')
+  getDb().prepare('UPDATE stories SET status = ? WHERE id = ?').run(status, storyId)
+  audit('Content Manager', status === 'published' ? 'published' : 'unpublished', 'Story', `${status === 'published' ? 'Published' : 'Unpublished'} "${existing.title}"`)
+  revalidatePath('/stories/[slug]', 'page')
+  touch()
+}
+
+export async function updateGalleryItem(itemId: string, input: { alt: string; caption: string; category: string }) {
+  const result = getDb().prepare('UPDATE gallery SET alt = ?, caption = ?, category = ? WHERE id = ?').run(
+    input.alt, input.caption, input.category, itemId,
   )
   missing(result, 'Photo')
   audit('Content Manager', 'updated', 'Gallery', `Updated photo ${itemId}`)
+  touch()
+}
+
+const expenseStatuses = new Set(['recorded', 'approved', 'paid'])
+
+export async function saveExpense(input: Omit<Expense, 'id'> & { id?: string }) {
+  const description = input.description.trim()
+  if (!description) throw new Error('Describe the expense.')
+  const amount = Math.round(Number(input.amount))
+  if (!Number.isFinite(amount) || amount < 0) throw new Error('Enter an amount of zero or more.')
+  const date = input.date.trim()
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error('Choose the date of the expense.')
+  if (!expenseStatuses.has(input.status)) throw new Error('Choose a status.')
+  const category = input.category.trim() || 'General'
+  const supplier = input.supplier.trim()
+  const receipt = input.receipt.trim() || `RCP-${Date.now().toString(36).toUpperCase()}`
+  const campaignId = input.campaignId?.trim() || null
+  const db = getDb()
+  if (campaignId && !db.prepare('SELECT id FROM campaigns WHERE id = ?').get(campaignId)) throw new Error('That campaign is not on file.')
+  if (input.id) {
+    const result = db.prepare('UPDATE expenses SET date = ?, category = ?, campaign_id = ?, description = ?, amount = ?, supplier = ?, receipt = ?, status = ? WHERE id = ?').run(
+      date, category, campaignId, description, amount, supplier, receipt, input.status, input.id,
+    )
+    missing(result, 'Expense')
+    audit('Finance Admin', 'updated', 'Expense', `Updated ${receipt}`)
+  } else {
+    db.prepare('INSERT INTO expenses (id, date, category, campaign_id, description, amount, supplier, receipt, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
+      id('x'), date, category, campaignId, description, amount, supplier, receipt, input.status,
+    )
+    audit('Finance Admin', 'recorded', 'Expense', `Recorded ${receipt}`)
+  }
   touch()
 }
 
@@ -433,8 +568,6 @@ export async function deleteAuditLog(logId: string) {
   missing(result, 'Log entry')
   touch()
 }
-
-const storyCategories = ['Success Stories', 'Scholarships', 'School Requirements', 'Community', 'Students', 'Events']
 
 type ImpactFields = { title: string; body: string; category: string; campaignId?: string; beneficiaryId?: string }
 

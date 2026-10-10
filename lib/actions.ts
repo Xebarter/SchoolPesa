@@ -1,7 +1,10 @@
 'use server'
 
+import { mkdir, unlink, writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
 import { revalidatePath } from 'next/cache'
 import { getDb, syncCampaignImpact } from '@/lib/db'
+import { galleryPhoto, photoUses, replacePhotoSrc } from '@/lib/gallery-images'
 import type { CampaignStatus, CheckoutDraft, Expense, GalleryItem, Story, Volunteer } from '@/lib/types'
 
 function id(prefix: string) {
@@ -216,10 +219,75 @@ export async function createGalleryItem(input: Omit<GalleryItem, 'id' | 'src'>) 
   revalidatePath('/admin/gallery')
 }
 
+const photoTypes: Record<string, string> = {
+  'image/jpeg': 'jpg',
+  'image/png': 'png',
+  'image/webp': 'webp',
+  'image/gif': 'gif',
+}
+
+function photoFileName(src: string) {
+  if (!src.startsWith('/media/gallery/')) return ''
+  const name = src.slice('/media/gallery/'.length).split('?')[0]
+  return /^[a-z0-9-]+\.(jpg|jpeg|png|webp|gif)$/i.test(name) ? name : ''
+}
+
 export async function deleteGalleryItem(itemId: string) {
-  getDb().prepare('DELETE FROM gallery WHERE id = ?').run(itemId)
+  const photo = galleryPhoto(itemId)
+  if (!photo) throw new Error('Photo was not found.')
+  const uses = photoUses(photo)
+  if (uses.length) {
+    const preview = uses.slice(0, 3).join(', ')
+    const more = uses.length > 3 ? ` and ${uses.length - 3} more` : ''
+    throw new Error(`This photo is used on ${preview}${more}. Replace it instead of deleting it.`)
+  }
+  const result = getDb().prepare('DELETE FROM gallery WHERE id = ?').run(itemId)
+  if (Number(result.changes) === 0) throw new Error('Photo was not found.')
+  const stillUsed = getDb().prepare('SELECT 1 AS n FROM gallery WHERE src = ?').get(photo.src)
+  const name = photoFileName(photo.src)
+  if (!stillUsed && name) await unlink(join(process.cwd(), 'data', 'gallery', name)).catch(() => undefined)
   revalidatePath('/gallery')
   revalidatePath('/admin/gallery')
+}
+
+export async function replaceGalleryImage(itemId: string, formData: FormData) {
+  const photo = galleryPhoto(itemId)
+  if (!photo) throw new Error('Photo was not found.')
+  const file = formData.get('photo')
+  if (!(file instanceof File) || file.size === 0) throw new Error('Choose an image.')
+  if (file.size > 8 * 1024 * 1024) throw new Error('Use an image under 8 MB.')
+  const extension = photoTypes[file.type]
+  if (!extension) throw new Error('Use a JPG, PNG, WebP, or GIF image.')
+  const safeId = photo.id.replace(/[^a-z0-9-]/gi, '') || 'photo'
+  const name = `${safeId}-${Date.now().toString(36)}.${extension}`
+  const dir = join(process.cwd(), 'data', 'gallery')
+  await mkdir(dir, { recursive: true })
+  await writeFile(join(dir, name), Buffer.from(await file.arrayBuffer()))
+  const nextSrc = `/media/gallery/${name}`
+  const db = getDb()
+  db.exec('BEGIN')
+  try {
+    replacePhotoSrc(photo.src, nextSrc)
+    db.prepare('UPDATE gallery SET src = ? WHERE id = ?').run(nextSrc, photo.id)
+    db.exec('COMMIT')
+  } catch (error) {
+    db.exec('ROLLBACK')
+    throw error
+  }
+  const oldName = photoFileName(photo.src)
+  const stillUsed = db.prepare('SELECT 1 AS n FROM gallery WHERE src = ?').get(photo.src)
+  if (!stillUsed && oldName) await unlink(join(dir, oldName)).catch(() => undefined)
+  revalidatePath('/gallery')
+  revalidatePath('/admin/gallery')
+  revalidatePath('/campaigns')
+  revalidatePath('/campaigns/[slug]', 'page')
+  revalidatePath('/stories')
+  revalidatePath('/stories/[slug]', 'page')
+  revalidatePath('/news')
+  revalidatePath('/events')
+  revalidatePath('/sponsor')
+  revalidatePath('/admin/campaigns')
+  revalidatePath('/admin/stories')
 }
 
 export async function submitVolunteer(input: Omit<Volunteer, 'id' | 'status'>) {
