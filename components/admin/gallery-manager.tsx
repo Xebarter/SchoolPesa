@@ -6,9 +6,10 @@ import { useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent,
 import { PageIntro } from '@/components/admin/ui'
 import { Button } from '@/components/ui/button'
 import { Input, Select } from '@/components/ui/input'
+import { ImageUploadProgress } from '@/components/ui/image-upload-progress'
+import { uploadWithProgress } from '@/lib/image-upload-client'
 import { updateGalleryItem } from '@/lib/admin-actions'
-import { deleteGalleryItem, replaceGalleryImage } from '@/lib/actions'
-import { uploadGalleryImages } from '@/lib/gallery-upload'
+import { deleteGalleryItem } from '@/lib/actions'
 import type { GalleryItem } from '@/lib/types'
 
 const categories = ['All', 'Children', 'Schools', 'Learning', 'School Supplies', 'Scholarships', 'Events', 'Communities']
@@ -30,6 +31,8 @@ export function GalleryManager({ initial, usage }: { initial: GalleryItem[]; usa
   const [photoCategory, setPhotoCategory] = useState('Learning')
   const [pending, setPending] = useState(false)
   const [error, setError] = useState('')
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null)
+  const [uploadSuccess, setUploadSuccess] = useState('')
   useEffect(() => { setItems(initial) }, [initial])
 
   const visible = useMemo(() => items.filter((item) => (category === 'All' || item.category === category) && `${item.caption} ${item.alt}`.toLowerCase().includes(query.trim().toLowerCase())), [items, query, category])
@@ -54,14 +57,21 @@ export function GalleryManager({ initial, usage }: { initial: GalleryItem[]; usa
     if (!files.length || pending) return
     setPending(true)
     setError('')
+    setUploadSuccess('')
     const body = new FormData()
+    body.set('purpose', 'gallery-upload')
     body.set('category', batchCategory)
     files.forEach((file) => body.append('photos', file))
     try {
-      await uploadGalleryImages(body)
+      setUploadProgress(0)
+      const response = await uploadWithProgress('/api/admin/images', body, setUploadProgress)
+      const count = typeof response.count === 'number' ? response.count : files.length
       setFiles([])
+      setUploadProgress(null)
+      setUploadSuccess(`${count} ${count === 1 ? 'photo' : 'photos'} added successfully.`)
       router.refresh()
     } catch (caught) {
+      setUploadProgress(null)
       setError(caught instanceof Error ? caught.message : 'The photos could not be added.')
     } finally {
       setPending(false)
@@ -81,6 +91,7 @@ export function GalleryManager({ initial, usage }: { initial: GalleryItem[]; usa
   function startReplace(itemId: string) {
     replaceId.current = itemId
     setError('')
+    setUploadSuccess('')
     replaceRef.current?.click()
   }
 
@@ -91,12 +102,19 @@ export function GalleryManager({ initial, usage }: { initial: GalleryItem[]; usa
     if (!file || !itemId) return
     setPending(true)
     setError('')
+    setUploadSuccess('')
     const body = new FormData()
+    body.set('purpose', 'gallery-replace')
+    body.set('itemId', itemId)
     body.set('photo', file)
     try {
-      await replaceGalleryImage(itemId, body)
+      setUploadProgress(0)
+      await uploadWithProgress('/api/admin/images', body, setUploadProgress)
+      setUploadProgress(null)
+      setUploadSuccess('Image updated successfully.')
       router.refresh()
     } catch (caught) {
+      setUploadProgress(null)
       setError(caught instanceof Error ? caught.message : 'The photo could not be replaced.')
     } finally {
       setPending(false)
@@ -123,6 +141,7 @@ export function GalleryManager({ initial, usage }: { initial: GalleryItem[]; usa
     <div>
       <PageIntro title="Gallery" />
       <input ref={replaceRef} type="file" accept="image/jpeg,image/png,image/webp,image/gif" className="sr-only" onChange={(event) => void onReplace(event)} />
+      <ImageUploadProgress progress={uploadProgress} success={uploadProgress === null ? uploadSuccess : undefined} />
       <form onSubmit={upload} className="mt-6">
         <div
           onDragOver={(event) => { event.preventDefault(); setDragging(true) }}

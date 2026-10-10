@@ -1,13 +1,16 @@
 'use client'
 
+import Image from 'next/image'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { useEffect, useMemo, useState, type FormEvent } from 'react'
-import { Search, X } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from 'react'
+import { ImagePlus, Search, Upload, X } from 'lucide-react'
 import { StatusPill } from '@/components/admin/ui'
 import { Dialog } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input, Label, Select, Textarea } from '@/components/ui/input'
+import { ImageUploadProgress } from '@/components/ui/image-upload-progress'
+import { uploadWithProgress } from '@/lib/image-upload-client'
 import { deleteCampaign, updateCampaign } from '@/lib/admin-actions'
 import { createCampaign, updateCampaignStatus } from '@/lib/actions'
 import { formatUGX, percentOf } from '@/lib/format'
@@ -50,7 +53,7 @@ const blank: FormState = {
   target: '1000000',
   start: new Date().toISOString().slice(0, 10),
   end: '',
-  image: '/school-pesa-hero.png',
+  image: '',
   gallery: '',
   video: '',
   seoTitle: '',
@@ -89,6 +92,7 @@ function formFrom(item: Campaign): FormState {
 
 export function CampaignManager({ initial, beneficiaries }: { initial: Campaign[]; beneficiaries: BeneficiaryOption[] }) {
   const router = useRouter()
+  const coverRef = useRef<HTMLInputElement>(null)
   const [rows, setRows] = useState(initial)
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState<CampaignStatus | 'all'>('all')
@@ -98,6 +102,9 @@ export function CampaignManager({ initial, beneficiaries }: { initial: Campaign[
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [pending, setPending] = useState(false)
+  const [uploadingCover, setUploadingCover] = useState(false)
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null)
+  const [uploadSuccess, setUploadSuccess] = useState('')
   const [statusId, setStatusId] = useState<string | null>(null)
   const [removing, setRemoving] = useState<Campaign | null>(null)
   useEffect(() => { setRows(initial) }, [initial])
@@ -121,11 +128,19 @@ export function CampaignManager({ initial, beneficiaries }: { initial: Campaign[
   const raised = rows.reduce((sum, item) => sum + item.raised, 0)
   const active = rows.filter((item) => item.status === 'active').length
 
-  function closeForm() {
+  function resetForm() {
     setOpen(false)
     setEditing(null)
     setForm(blank)
     setError('')
+    setUploadProgress(null)
+    setUploadSuccess('')
+  }
+
+  function closeForm() {
+    if (pending || uploadingCover) return
+    resetForm()
+    setNotice('')
   }
 
   function edit(item: Campaign) {
@@ -133,12 +148,44 @@ export function CampaignManager({ initial, beneficiaries }: { initial: Campaign[
     setForm(formFrom(item))
     setError('')
     setNotice('')
+    setUploadProgress(null)
+    setUploadSuccess('')
     setOpen(true)
+  }
+
+  async function onCoverChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file || uploadingCover) return
+    setUploadingCover(true)
+    setError('')
+    setNotice('')
+    setUploadSuccess('')
+    const data = new FormData()
+    data.set('purpose', 'cover')
+    data.set('entity', 'campaign')
+    data.set('image', file)
+    try {
+      setUploadProgress(0)
+      const response = await uploadWithProgress('/api/admin/images', data, setUploadProgress)
+      if (typeof response.image !== 'string' || !response.image.startsWith('/media/gallery/')) {
+        throw new Error('The server returned an invalid image path.')
+      }
+      const image = response.image
+      setForm((current) => ({ ...current, image }))
+      setUploadProgress(null)
+      setUploadSuccess('Image uploaded successfully. Save the campaign to apply it.')
+    } catch (caught) {
+      setUploadProgress(null)
+      setError(caught instanceof Error ? caught.message : 'The cover image could not be uploaded.')
+    } finally {
+      setUploadingCover(false)
+    }
   }
 
   async function save(event: FormEvent) {
     event.preventDefault()
-    if (pending) return
+    if (pending || uploadingCover) return
     setPending(true)
     setError('')
     const payload = {
@@ -164,7 +211,7 @@ export function CampaignManager({ initial, beneficiaries }: { initial: Campaign[
       if (editing) await updateCampaign(editing, payload)
       else await createCampaign(payload)
       setNotice(editing ? 'Campaign updated.' : 'Campaign created.')
-      closeForm()
+      resetForm()
       router.refresh()
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'The campaign could not be saved.')
@@ -213,7 +260,7 @@ export function CampaignManager({ initial, beneficiaries }: { initial: Campaign[
           <h1 className="mt-2 text-3xl font-semibold tracking-[-.04em] text-ink sm:text-4xl">Campaigns</h1>
           <p className="mt-2 max-w-md text-sm leading-6 text-sage">Create, update, and publish campaigns. Every change is written to the campaign records.</p>
         </div>
-        <Button className="h-11 w-full rounded-full bg-forest px-5 text-white hover:bg-brand-deep sm:w-auto" onClick={() => { setEditing(null); setForm(blank); setError(''); setOpen(true) }}>New campaign</Button>
+        <Button className="h-11 w-full rounded-full bg-forest px-5 text-white hover:bg-brand-deep sm:w-auto" disabled={pending || uploadingCover} onClick={() => { setEditing(null); setForm(blank); setError(''); setNotice(''); setUploadProgress(null); setUploadSuccess(''); setOpen(true) }}>New campaign</Button>
       </header>
 
       <section className="mt-6 grid grid-cols-2 border border-line bg-white sm:grid-cols-4" aria-label="Campaign summary">
@@ -260,75 +307,33 @@ export function CampaignManager({ initial, beneficiaries }: { initial: Campaign[
           {rows.length === 0 ? 'No campaigns yet. Create the first one.' : 'No campaigns match this search.'}
         </p>
       ) : (
-        <>
-          <ul className="mt-4 grid gap-3 lg:hidden">
-            {visible.map((item) => (
-              <li key={item.id}>
-                <CampaignCard item={item} busy={statusId === item.id} onEdit={() => edit(item)} onStatus={(status) => void changeStatus(item, status)} onDelete={() => setRemoving(item)} />
-              </li>
-            ))}
-          </ul>
-          <div className="mt-4 hidden overflow-hidden border border-line bg-white lg:block">
-            <table className="w-full text-left">
-              <thead className="border-b border-line bg-cream">
-                <tr>
-                  {['Campaign', 'Progress', 'Status', 'Actions'].map((heading) => (
-                    <th key={heading} className="px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-sage">{heading}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {visible.map((item) => {
-                  const progress = percentOf(item.raised, item.target)
-                  return (
-                    <tr key={item.id} className="border-b border-line last:border-0">
-                      <td className="px-4 py-3">
-                        <p className="font-semibold text-ink">{item.title}</p>
-                        <p className="text-xs text-sage">{item.category} · {item.location} · ends {showDate(item.deadline)}</p>
-                      </td>
-                      <td className="px-4 py-3">
-                        <p className="text-sm font-semibold text-ink">{formatUGX(item.raised)} <span className="font-normal text-sage">of {formatUGX(item.target)}</span></p>
-                        <div className="mt-2 h-1.5 w-36 overflow-hidden rounded-full bg-mist">
-                          <div className="h-full rounded-full bg-brand" style={{ width: `${progress}%` }} />
-                        </div>
-                        <p className="mt-1 text-xs text-sage">{progress}% · {item.donors} donors</p>
-                      </td>
-                      <td className="px-4 py-3">
-                        <Select className="h-10 w-36 capitalize" aria-label={`Status for ${item.title}`} value={item.status} disabled={statusId === item.id} onChange={(event) => void changeStatus(item, event.target.value as CampaignStatus)}>
-                          {statuses.map((status) => <option key={status} value={status}>{status}</option>)}
-                        </Select>
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="flex gap-2">
-                          <Link href={`/campaigns/${item.slug}`} className="inline-flex h-10 items-center rounded-full border border-line px-3 text-sm font-semibold text-forest">View</Link>
-                          <button type="button" className="h-10 rounded-full border border-line px-3 text-sm font-semibold text-ink" onClick={() => edit(item)}>Edit</button>
-                          <button type="button" className="h-10 rounded-full px-3 text-sm font-semibold text-destructive" onClick={() => setRemoving(item)}>Delete</button>
-                        </div>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-        </>
+        <ul className="mt-4 grid gap-3">
+          {visible.map((item) => (
+            <li key={item.id}>
+              <CampaignStrip item={item} busy={statusId === item.id} onEdit={() => edit(item)} onStatus={(status) => void changeStatus(item, status)} onDelete={() => setRemoving(item)} />
+            </li>
+          ))}
+        </ul>
       )}
 
       {open ? (
-        <div className="fixed inset-0 z-50 flex items-end bg-ink/40 sm:items-center sm:justify-center sm:p-6" onClick={closeForm}>
+        <div className="fixed inset-0 z-50 flex items-end bg-ink/40 sm:items-center sm:justify-center sm:p-6" onClick={() => closeForm()}>
           <form
             role="dialog"
             aria-modal="true"
             aria-labelledby="campaign-form-title"
-            className="flex max-h-[94vh] w-full flex-col bg-white sm:max-h-[90vh] sm:max-w-2xl sm:rounded-3xl"
+            className="flex max-h-[94vh] w-full flex-col bg-white sm:max-h-[90vh] sm:max-w-3xl sm:rounded-3xl"
             onClick={(event) => event.stopPropagation()}
             onSubmit={save}
           >
             <div className="flex items-center justify-between gap-3 border-b border-line px-4 py-3">
-              <h2 id="campaign-form-title" className="text-lg font-semibold text-ink">{editing ? 'Edit campaign' : 'New campaign'}</h2>
-              <button type="button" className="grid size-11 place-items-center rounded-full text-ink" aria-label="Close" onClick={closeForm}><X className="size-5" /></button>
+              <div>
+                <h2 id="campaign-form-title" className="text-lg font-semibold text-ink">{editing ? 'Edit campaign' : 'New campaign'}</h2>
+                <p className="mt-0.5 text-xs text-sage">Update the campaign details and cover image.</p>
+              </div>
+              <button type="button" className="grid size-11 place-items-center rounded-full text-ink disabled:opacity-50" aria-label="Close" onClick={() => closeForm()} disabled={pending || uploadingCover}><X className="size-5" /></button>
             </div>
-            <div className="grid gap-4 overflow-y-auto px-4 py-4 sm:grid-cols-2">
+            <div className="grid gap-4 overflow-y-auto px-4 py-4 sm:grid-cols-2 sm:px-6">
               <Label className="sm:col-span-2">Title<Input className="mt-2" value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} required /></Label>
               <Label className="sm:col-span-2">Address<Input className="mt-2" value={form.slug} onChange={(event) => setForm({ ...form, slug: event.target.value })} placeholder="Leave blank to build it from the title" /></Label>
               <Label className="sm:col-span-2">Short description<Textarea className="mt-2" value={form.summary} onChange={(event) => setForm({ ...form, summary: event.target.value })} /></Label>
@@ -354,16 +359,46 @@ export function CampaignManager({ initial, beneficiaries }: { initial: Campaign[
               </Label>
               <Label>Start date<Input className="mt-2" type="date" value={form.start} onChange={(event) => setForm({ ...form, start: event.target.value })} required /></Label>
               <Label>End date<Input className="mt-2" type="date" value={form.end} onChange={(event) => setForm({ ...form, end: event.target.value })} required /></Label>
-              <Label className="sm:col-span-2">Cover image<Input className="mt-2" value={form.image} onChange={(event) => setForm({ ...form, image: event.target.value })} /></Label>
-              <Label className="sm:col-span-2">Gallery<Textarea className="mt-2" value={form.gallery} onChange={(event) => setForm({ ...form, gallery: event.target.value })} placeholder="One image address per line" /></Label>
+              <div className="sm:col-span-2">
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <Label>Campaign cover</Label>
+                  <span className="text-xs text-sage">JPG, PNG, WebP, or GIF · up to 8 MB</span>
+                </div>
+                <input ref={coverRef} type="file" accept="image/jpeg,image/png,image/webp,image/gif" className="sr-only" aria-label="Upload campaign cover image" onChange={(event) => void onCoverChange(event)} />
+                <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_12rem]">
+                  <div className="relative aspect-[16/9] overflow-hidden rounded-xl border border-line bg-cream sm:aspect-auto sm:min-h-36">
+                    {form.image && !form.image.startsWith('//') ? (
+                      <Image src={form.image} alt="Campaign cover preview" fill className="object-cover" sizes="(max-width: 640px) 100vw, 400px" />
+                    ) : (
+                      <div className="grid size-full min-h-36 place-items-center text-sage">
+                        <span className="text-center"><ImagePlus className="mx-auto size-7" /><span className="mt-2 block text-xs">No cover image selected</span></span>
+                      </div>
+                    )}
+                    <span className="absolute bottom-2 left-2 rounded-full bg-ink/75 px-2.5 py-1 text-[10px] font-semibold text-white">Cover preview</span>
+                  </div>
+                  <div className="flex flex-col justify-center rounded-xl border border-dashed border-line bg-cream/50 p-4">
+                    <Upload className="size-5 text-brand" />
+                    <p className="mt-2 text-sm font-semibold text-ink">Choose a campaign photo</p>
+                    <p className="mt-1 text-xs leading-5 text-sage">Upload a clear image to help donors recognize this campaign.</p>
+                    <Button type="button" variant="outline" className="mt-3 h-10 rounded-full" onClick={() => coverRef.current?.click()} disabled={uploadingCover || pending}>
+                      {uploadingCover ? 'Uploading…' : form.image ? 'Replace image' : 'Upload image'}
+                    </Button>
+                  </div>
+                </div>
+                <ImageUploadProgress progress={uploadProgress} success={uploadProgress === null ? uploadSuccess : undefined} />
+              </div>
+              <Label className="sm:col-span-2">Additional gallery image paths<Textarea className="mt-2" value={form.gallery} onChange={(event) => setForm({ ...form, gallery: event.target.value })} placeholder="One path per line, if needed" /><span className="mt-1 block text-xs font-normal text-sage">Optional secondary images only. Upload the campaign cover above.</span></Label>
               <Label className="sm:col-span-2">Video<Input className="mt-2" value={form.video} onChange={(event) => setForm({ ...form, video: event.target.value })} /></Label>
               <Label>SEO title<Input className="mt-2" value={form.seoTitle} onChange={(event) => setForm({ ...form, seoTitle: event.target.value })} /></Label>
               <Label>SEO description<Textarea className="mt-2" value={form.seoDescription} onChange={(event) => setForm({ ...form, seoDescription: event.target.value })} /></Label>
-              {error ? <p role="alert" className="text-sm text-destructive sm:col-span-2">{error}</p> : null}
+              {error ? <p role="alert" className="rounded-xl border border-destructive/20 bg-destructive/5 px-3 py-2 text-sm text-destructive sm:col-span-2">{error}</p> : null}
             </div>
-            <div className="flex gap-2 border-t border-line px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
-              <Button type="button" variant="outline" className="h-11 flex-1 rounded-full" onClick={closeForm}>Cancel</Button>
-              <Button type="submit" className="h-11 flex-1 rounded-full bg-forest text-white hover:bg-brand-deep" disabled={pending}>{pending ? 'Saving…' : editing ? 'Update' : 'Create'}</Button>
+            <div className="flex items-center justify-between gap-3 border-t border-line px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-6">
+              <p className="hidden text-xs text-sage sm:block">{uploadingCover ? 'Uploading image…' : 'Your changes are saved when you submit.'}</p>
+              <div className="ml-auto flex w-full gap-2 sm:w-auto">
+                <Button type="button" variant="outline" className="h-11 flex-1 rounded-full sm:flex-none" onClick={() => closeForm()} disabled={pending || uploadingCover}>Cancel</Button>
+                <Button type="submit" className="h-11 flex-1 rounded-full bg-forest text-white hover:bg-brand-deep sm:flex-none" disabled={pending || uploadingCover}>{pending ? 'Saving…' : editing ? 'Save changes' : 'Create campaign'}</Button>
+              </div>
             </div>
           </form>
         </div>
@@ -380,31 +415,56 @@ export function CampaignManager({ initial, beneficiaries }: { initial: Campaign[
   )
 }
 
-function CampaignCard({ item, busy, onEdit, onStatus, onDelete }: { item: Campaign; busy: boolean; onEdit: () => void; onStatus: (status: CampaignStatus) => void; onDelete: () => void }) {
+function CampaignStrip({ item, busy, onEdit, onStatus, onDelete }: { item: Campaign; busy: boolean; onEdit: () => void; onStatus: (status: CampaignStatus) => void; onDelete: () => void }) {
   const progress = percentOf(item.raised, item.target)
   return (
-    <article className="border border-line bg-white p-4">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <h2 className="font-semibold text-ink">{item.title}</h2>
-          <p className="mt-1 text-xs text-sage">{item.category} · {item.location}</p>
+    <article className="grid grid-cols-[6rem_minmax(0,1fr)] overflow-hidden rounded-2xl border border-line bg-white transition-shadow hover:shadow-sm sm:grid-cols-[9rem_minmax(0,1fr)] lg:grid-cols-[11rem_minmax(0,1fr)_auto]">
+      <div className="relative aspect-square bg-cream lg:aspect-auto">
+        <Image
+          src={item.image || '/school-pesa-hero.png'}
+          alt=""
+          fill
+          className="object-cover"
+          sizes="(max-width: 640px) 100vw, 176px"
+        />
+      </div>
+      <div className="min-w-0 p-4 sm:p-5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <StatusPill value={item.status} />
+              <span className="text-xs text-sage">{item.category} · {item.location}</span>
+            </div>
+            <h2 className="mt-2 text-base font-semibold leading-6 text-ink sm:text-lg">{item.title}</h2>
+            <p className="mt-1 line-clamp-2 text-sm leading-5 text-sage">{item.summary || item.description}</p>
+          </div>
         </div>
-        <StatusPill value={item.status} />
+        <div className="mt-4">
+          <div className="flex flex-wrap items-baseline justify-between gap-2 text-sm">
+            <p className="font-semibold text-ink">{formatUGX(item.raised)} <span className="font-normal text-sage">raised</span></p>
+            <p className="text-xs text-sage">{progress}% of {formatUGX(item.target)}</p>
+          </div>
+          <div className="mt-2 h-2 overflow-hidden rounded-full bg-mist" role="progressbar" aria-label={`Funding progress for ${item.title}`} aria-valuenow={progress} aria-valuemin={0} aria-valuemax={100}>
+            <div className="h-full rounded-full bg-brand transition-[width]" style={{ width: `${progress}%` }} />
+          </div>
+          <p className="mt-2 text-xs text-sage">{item.donors} donors · closes {showDate(item.deadline)}</p>
+        </div>
+        <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-line pt-3 lg:hidden">
+          <Select className="h-10 w-36 capitalize" aria-label={`Status for ${item.title}`} value={item.status} disabled={busy} onChange={(event) => onStatus(event.target.value as CampaignStatus)}>
+            {statuses.map((status) => <option key={status} value={status}>{status}</option>)}
+          </Select>
+          <Link href={`/campaigns/${item.slug}`} className="inline-flex h-10 items-center rounded-full border border-line px-3 text-sm font-semibold text-forest">View</Link>
+          <button type="button" className="h-10 rounded-full border border-line px-3 text-sm font-semibold text-ink" onClick={onEdit}>Edit</button>
+          <button type="button" className="h-10 rounded-full px-3 text-sm font-semibold text-destructive" onClick={onDelete}>Delete</button>
+        </div>
       </div>
-      <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-mist">
-        <div className="h-full rounded-full bg-brand" style={{ width: `${progress}%` }} />
-      </div>
-      <p className="mt-2 text-sm text-ink">{formatUGX(item.raised)} <span className="text-sage">of {formatUGX(item.target)} · {progress}%</span></p>
-      <p className="mt-1 text-xs text-sage">{item.donors} donors · ends {showDate(item.deadline)}</p>
-      <Label className="mt-4 block text-xs">Status
-        <Select className="mt-2 h-11 capitalize" aria-label={`Status for ${item.title}`} value={item.status} disabled={busy} onChange={(event) => onStatus(event.target.value as CampaignStatus)}>
+      <div className="hidden items-center gap-2 p-4 lg:flex">
+        <Select className="h-10 w-36 capitalize" aria-label={`Status for ${item.title}`} value={item.status} disabled={busy} onChange={(event) => onStatus(event.target.value as CampaignStatus)}>
           {statuses.map((status) => <option key={status} value={status}>{status}</option>)}
         </Select>
-      </Label>
-      <div className="mt-3 grid grid-cols-3 gap-2">
-        <Link href={`/campaigns/${item.slug}`} className="inline-flex h-11 items-center justify-center rounded-full border border-line text-sm font-semibold text-forest">View</Link>
-        <button type="button" className="h-11 rounded-full border border-line text-sm font-semibold text-ink" onClick={onEdit}>Edit</button>
-        <button type="button" className="h-11 rounded-full text-sm font-semibold text-destructive" onClick={onDelete}>Delete</button>
+        <Link href={`/campaigns/${item.slug}`} className="inline-flex h-10 items-center rounded-full border border-line px-3 text-sm font-semibold text-forest">View</Link>
+        <button type="button" className="h-10 rounded-full border border-line px-3 text-sm font-semibold text-ink" onClick={onEdit}>Edit</button>
+        <button type="button" className="h-10 rounded-full px-3 text-sm font-semibold text-destructive" onClick={onDelete}>Delete</button>
       </div>
     </article>
   )

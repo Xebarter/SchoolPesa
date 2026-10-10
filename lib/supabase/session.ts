@@ -4,7 +4,7 @@ import { createServerClient } from '@/lib/supabase/server'
 
 const adminRoles = new Set(['Super Admin', 'Finance Admin', 'Campaign Manager', 'Content Manager', 'Auditor'])
 
-function isAdminRole(role: string) {
+export function isAdminRole(role: string) {
   return adminRoles.has(role)
 }
 

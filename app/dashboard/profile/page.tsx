@@ -4,7 +4,9 @@ import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'r
 import { useRouter } from 'next/navigation'
 import { saveDonorProfile } from '@/lib/actions'
 import { deleteDonorProfile } from '@/lib/donor-actions'
-import { clearProfilePhoto, saveProfilePhoto } from '@/lib/profile-photo'
+import { ImageUploadProgress } from '@/components/ui/image-upload-progress'
+import { uploadWithProgress } from '@/lib/image-upload-client'
+import { clearProfilePhoto } from '@/lib/profile-photo'
 import { updateAccount } from '@/lib/auth-client'
 import { accountInitials, accountName, accountPhoto } from '@/lib/supabase/account'
 import { createBrowserClient } from '@/lib/supabase/client'
@@ -23,6 +25,7 @@ export default function Page() {
   const [photoNote, setPhotoNote] = useState('')
   const [error, setError] = useState('')
   const [uploading, setUploading] = useState(false)
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null)
 
   useEffect(() => {
     const supabase = createBrowserClient()
@@ -48,11 +51,15 @@ export default function Page() {
     try {
       const body = new FormData()
       body.set('photo', file)
-      await saveProfilePhoto(body)
-      setPhoto(URL.createObjectURL(file))
+      setUploadProgress(0)
+      const response = await uploadWithProgress('/api/profile/photo', body, setUploadProgress)
+      if (typeof response.photo !== 'string') throw new Error('The server returned an invalid photo.')
+      setPhoto(response.photo)
+      setUploadProgress(null)
       setPhotoNote('Photo updated.')
       router.refresh()
     } catch (caught) {
+      setUploadProgress(null)
       setError(caught instanceof Error ? caught.message : 'The photo could not be saved.')
     } finally {
       setUploading(false)
@@ -101,7 +108,7 @@ export default function Page() {
           <Button type="button" variant="outline" className="rounded-full" disabled={!ready || uploading} onClick={() => fileRef.current?.click()}>{uploading ? 'Saving photo…' : 'Upload photo'}</Button>
           {photo.startsWith('/avatars/') || photo.startsWith('blob:') ? <button type="button" className="text-xs font-semibold text-ink" disabled={uploading} onClick={() => void onClearPhoto()}>Remove photo</button> : null}
         </div>
-        {photoNote ? <p role="status" className="mt-3 text-xs text-forest">{photoNote}</p> : null}
+        <ImageUploadProgress progress={uploadProgress} success={uploadProgress === null ? photoNote : undefined} />
       </aside>
       <form className="bg-mist p-6" onSubmit={onSubmit}>
         <h2 className="text-lg font-semibold tracking-tight text-ink">Profile</h2>
