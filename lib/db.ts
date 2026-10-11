@@ -1,14 +1,16 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
+import { tmpdir } from 'node:os'
 import { campaigns as seedCampaigns } from '@/lib/data/campaigns'
 import { events as seedEvents, faqs as seedFaqs, gallery as seedGallery, news as seedNews, stories as seedStories } from '@/lib/data/content'
 import { auditLogs as seedAudit, donationSeries as seedSeries, donations as seedDonations, expenses as seedExpenses, impactStats as seedImpact, levelSplit as seedLevels, notifications as seedNotes, transactions as seedTransactions } from '@/lib/data/giving'
 import { beneficiaries as seedBeneficiaries, partners as seedPartners, users as seedUsers, volunteers as seedVolunteers } from '@/lib/data/people'
 import type { AuditLog, Beneficiary, Campaign, Donation, EventItem, Expense, Faq, GalleryItem, NewsArticle, NotificationItem, Partner, PaymentTransaction, Story, User, Volunteer } from '@/lib/types'
 
-const file = join(process.cwd(), 'data', 'schoolpesa.db')
-mkdirSync(join(process.cwd(), 'data'), { recursive: true })
+const dataDirectory = process.env.VERCEL ? tmpdir() : join(process.cwd(), 'data')
+const file = join(dataDirectory, 'schoolpesa.db')
+mkdirSync(dataDirectory, { recursive: true })
 
 const database = new DatabaseSync(file)
 database.exec('PRAGMA journal_mode = WAL')
