@@ -8,8 +8,8 @@ import { formatDate } from '@/lib/format'
 
 export const metadata = { title: 'Events' }
 
-export default function Page() {
-  const events = getEvents()
+export default async function Page() {
+  const events = await getEvents()
   return (
     <SiteShell>
       <Band>

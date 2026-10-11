@@ -3,6 +3,6 @@ import { getAuditLogs } from '@/lib/data'
 
 export const metadata = { title: 'Audit logs' }
 
-export default function Page() {
-  return <AuditList logs={getAuditLogs()} />
+export default async function Page() {
+  return <AuditList logs={await getAuditLogs()} />
 }

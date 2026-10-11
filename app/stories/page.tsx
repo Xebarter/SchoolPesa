@@ -12,7 +12,7 @@ export const metadata = { title: 'Stories' }
 
 export default async function Page({ searchParams }: { searchParams: Promise<{ category?: string }> }) {
   const { category } = await searchParams
-  const stories = getStories()
+  const stories = await getStories()
   const list = stories.filter((story) => story.status === 'published' && (!category || category === 'All' || story.category === category))
   return (
     <SiteShell>

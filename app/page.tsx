@@ -39,10 +39,8 @@ const flow = [
   ['A future changed', GraduationCap],
 ] as const
 
-export default function Page() {
-  const campaigns = getCampaigns()
-  const partners = getPartners()
-  const stories = getStories()
+export default async function Page() {
+  const [campaigns, partners, stories] = await Promise.all([getCampaigns(), getPartners(), getStories()])
   const featured = campaigns.filter((item) => item.status === 'active').slice(0, 4)
   const featuredStory = stories[0]
   return (

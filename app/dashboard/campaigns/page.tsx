@@ -7,8 +7,8 @@ export const metadata = { title: 'My campaigns' }
 
 export default async function Page() {
   const account = await currentAccount()
-  const campaigns = getCampaigns()
-  const saved = account ? donorCampaigns(account.email) : []
+  const campaigns = await getCampaigns()
+  const saved = account ? await donorCampaigns(account.email) : []
   const owned = account ? campaigns.filter((item) => item.ownerEmail === account.email.trim().toLowerCase()) : []
   return (
     <div className="mx-auto max-w-6xl">

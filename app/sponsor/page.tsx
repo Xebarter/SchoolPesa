@@ -16,7 +16,7 @@ export const metadata = { title: 'Sponsor a child' }
 
 export default async function Page({ searchParams }: { searchParams: Promise<{ level?: string }> }) {
   const { level } = await searchParams
-  const beneficiaries = getBeneficiaries()
+  const beneficiaries = await getBeneficiaries()
   const list = beneficiaries.filter((item) => item.publicProfile && (!level || level === 'All' || item.level === level))
   return (
     <SiteShell>

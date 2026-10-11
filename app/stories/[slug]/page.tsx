@@ -9,20 +9,22 @@ import { Button } from '@/components/ui/button'
 import { getBeneficiary, getCampaignById, getStories, getStory } from '@/lib/data'
 import { formatDate } from '@/lib/format'
 
-export function generateStaticParams() {
-  return getStories().map((story) => ({ slug: story.slug }))
+export async function generateStaticParams() {
+  return (await getStories()).map((story) => ({ slug: story.slug }))
 }
 
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }) {
-  const story = getStory((await params).slug)
+  const story = await getStory((await params).slug)
   return { title: story?.title ?? 'Story', description: story?.excerpt }
 }
 
 export default async function Page({ params }: { params: Promise<{ slug: string }> }) {
-  const story = getStory((await params).slug)
+  const story = await getStory((await params).slug)
   if (!story) notFound()
-  const campaign = story.campaignId ? getCampaignById(story.campaignId) : undefined
-  const learner = story.beneficiaryId ? getBeneficiary(story.beneficiaryId) : undefined
+  const [campaign, learner] = await Promise.all([
+    story.campaignId ? getCampaignById(story.campaignId) : undefined,
+    story.beneficiaryId ? getBeneficiary(story.beneficiaryId) : undefined,
+  ])
   return (
     <SiteShell>
       <article>

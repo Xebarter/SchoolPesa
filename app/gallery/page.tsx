@@ -6,8 +6,8 @@ import { getGallery } from '@/lib/data'
 
 export const metadata = { title: 'Gallery' }
 
-export default function Page() {
-  const gallery = getGallery()
+export default async function Page() {
+  const gallery = await getGallery()
   return (
     <SiteShell>
       <Band>

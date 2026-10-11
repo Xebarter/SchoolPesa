@@ -5,17 +5,17 @@ import { SiteShell } from '@/components/site/shell'
 import { getNews, getNewsArticle } from '@/lib/data'
 import { formatDate } from '@/lib/format'
 
-export function generateStaticParams() {
-  return getNews().map((article) => ({ slug: article.slug }))
+export async function generateStaticParams() {
+  return (await getNews()).map((article) => ({ slug: article.slug }))
 }
 
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }) {
-  const article = getNewsArticle((await params).slug)
+  const article = await getNewsArticle((await params).slug)
   return { title: article?.title ?? 'News', description: article?.excerpt }
 }
 
 export default async function Page({ params }: { params: Promise<{ slug: string }> }) {
-  const article = getNewsArticle((await params).slug)
+  const article = await getNewsArticle((await params).slug)
   if (!article) notFound()
   return (
     <SiteShell>

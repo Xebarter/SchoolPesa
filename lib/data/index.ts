@@ -24,16 +24,20 @@ import type { Campaign, CampaignStatus, EducationLevel } from '@/lib/types'
 
 export { rolePermissions }
 
-export function getCampaigns() {
+export async function getCampaigns() {
+  return (await listCampaigns()).filter((campaign) => campaign.status === 'active' || campaign.status === 'completed')
+}
+
+export async function getAllCampaigns() {
   return listCampaigns()
 }
 
-export function getCampaignBySlug(slug: string) {
-  return listCampaigns().find((campaign) => campaign.slug === slug)
+export async function getCampaignBySlug(slug: string) {
+  return (await getCampaigns()).find((campaign) => campaign.slug === slug)
 }
 
-export function getCampaignById(id: string) {
-  return listCampaigns().find((campaign) => campaign.id === id)
+export async function getCampaignById(id: string) {
+  return (await getCampaigns()).find((campaign) => campaign.id === id)
 }
 
 export type CampaignQuery = {
@@ -47,8 +51,8 @@ export type CampaignQuery = {
   page?: string
 }
 
-export function queryCampaigns(query: CampaignQuery) {
-  let list = getCampaigns()
+export async function queryCampaigns(query: CampaignQuery) {
+  let list = await getCampaigns()
   const q = query.q?.trim().toLowerCase()
   if (q) list = list.filter((item) => `${item.title} ${item.summary} ${item.location}`.toLowerCase().includes(q))
   if (query.level) list = list.filter((item) => item.level === query.level)
@@ -67,109 +71,117 @@ export function campaignLevels(): EducationLevel[] {
   return ['Nursery', 'Primary', 'Secondary', 'University']
 }
 
-export function campaignCategories() {
-  return [...new Set(getCampaigns().map((item) => item.category))]
+export async function campaignCategories() {
+  return [...new Set((await getCampaigns()).map((item) => item.category))]
 }
 
-export function campaignLocations() {
-  return [...new Set(getCampaigns().map((item) => item.location))]
+export async function campaignLocations() {
+  return [...new Set((await getCampaigns()).map((item) => item.location))]
 }
 
 export function campaignStatuses(): CampaignStatus[] {
   return ['draft', 'active', 'paused', 'completed', 'archived']
 }
 
-export function getBeneficiaries() {
+export async function getBeneficiaries() {
+  return (await listBeneficiaries()).filter((beneficiary) => beneficiary.publicProfile)
+}
+
+export async function getAllBeneficiaries() {
   return listBeneficiaries()
 }
 
-export function getBeneficiary(id: string) {
-  return listBeneficiaries().find((item) => item.id === id)
+export async function getBeneficiary(id: string) {
+  return (await getBeneficiaries()).find((item) => item.id === id)
 }
 
-export function getStories() {
+export async function getStories() {
+  return (await listStories()).filter((story) => story.status === 'published')
+}
+
+export async function getAllStories() {
   return listStories()
 }
 
-export function getStory(slug: string) {
-  return listStories().find((item) => item.slug === slug)
+export async function getStory(slug: string) {
+  return (await getStories()).find((item) => item.slug === slug)
 }
 
-export function relatedStories(slug: string) {
-  return listStories().filter((item) => item.slug !== slug).slice(0, 3)
+export async function relatedStories(slug: string) {
+  return (await getStories()).filter((item) => item.slug !== slug).slice(0, 3)
 }
 
-export function getNews() {
+export async function getNews() {
   return listNews()
 }
 
-export function getNewsArticle(slug: string) {
-  return listNews().find((item) => item.slug === slug)
+export async function getNewsArticle(slug: string) {
+  return (await listNews()).find((item) => item.slug === slug)
 }
 
-export function getEvents() {
+export async function getEvents() {
   return listEvents()
 }
 
-export function getGallery() {
+export async function getGallery() {
   return listGallery()
 }
 
-export function getFaqs() {
+export async function getFaqs() {
   return listFaqs()
 }
 
-export function getPartners() {
+export async function getPartners() {
   return listPartners()
 }
 
-export function getUsers() {
+export async function getUsers() {
   return listUsers()
 }
 
-export function getVolunteers() {
+export async function getVolunteers() {
   return listVolunteers()
 }
 
-export function getDonations() {
+export async function getDonations() {
   return listDonations()
 }
 
-export function getTransactions() {
+export async function getTransactions() {
   return listTransactions()
 }
 
-export function getExpenses() {
+export async function getExpenses() {
   return listExpenses()
 }
 
-export function getNotifications() {
+export async function getNotifications() {
   return listNotifications()
 }
 
-export function getAuditLogs() {
+export async function getAuditLogs() {
   return listAuditLogs()
 }
 
-export function getDonationSeries() {
+export async function getDonationSeries() {
   return listDonationSeries()
 }
 
-export function getCampaignBars() {
-  return getCampaigns()
+export async function getCampaignBars() {
+  return (await getCampaigns())
     .filter((item) => item.status !== 'draft')
     .map((item) => ({ name: item.title.split(' ').slice(0, 2).join(' '), amount: Math.round(item.raised / 10_000) / 100 }))
 }
 
-export function getLevelSplit() {
+export async function getLevelSplit() {
   return listLevelSplit()
 }
 
-export function getImpact() {
+export async function getImpact() {
   return getImpactStats()
 }
 
-export function getSettings() {
+export async function getSettings() {
   return listSettings()
 }
 

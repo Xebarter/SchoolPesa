@@ -1,10 +1,8 @@
 import { randomUUID } from 'node:crypto'
-import { mkdir, unlink, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
 import { revalidatePath } from 'next/cache'
 import { NextResponse } from 'next/server'
-import { getDb } from '@/lib/db'
-import { galleryPhoto, replacePhotoSrc } from '@/lib/gallery-images'
+import { galleryPhoto, removeGalleryObject, replacePhotoSrc } from '@/lib/gallery-images'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { currentAccount, isAdminRole } from '@/lib/supabase/session'
 
 export const runtime = 'nodejs'
@@ -37,12 +35,6 @@ function imageFile(value: FormDataEntryValue | null, maxSize: number, label: str
   return value
 }
 
-function galleryFileName(src: string) {
-  if (!src.startsWith('/media/gallery/')) return ''
-  const name = src.slice('/media/gallery/'.length).split('?')[0]
-  return /^[a-z0-9-]+\.(jpg|jpeg|png|webp|gif)$/i.test(name) ? name : ''
-}
-
 function failure(error: unknown) {
   const message = error instanceof Error ? error.message : 'The image upload could not be completed.'
   const status = message === 'Administrator access is required.' ? 403 : 400
@@ -58,15 +50,18 @@ export async function POST(request: Request) {
 
     const formData = await request.formData()
     const purpose = formData.get('purpose')
-    const directory = join(process.cwd(), 'data', 'gallery')
-    await mkdir(directory, { recursive: true })
+    const storage = createAdminClient().storage.from('gallery')
 
     if (purpose === 'cover') {
       const entity = formData.get('entity')
       if (entity !== 'campaign' && entity !== 'story') throw new Error('Choose a supported image type.')
       const file = imageFile(formData.get('image'), 8 * 1024 * 1024, 'a cover image')
       const name = `${entity}-${randomUUID()}.${imageTypes[file.type]}`
-      await writeFile(join(directory, name), Buffer.from(await file.arrayBuffer()))
+      const { error } = await storage.upload(name, Buffer.from(await file.arrayBuffer()), {
+        contentType: file.type,
+        upsert: false,
+      })
+      if (error) throw new Error(`Could not upload cover image: ${error.message}`)
       return NextResponse.json({ image: `/media/gallery/${name}` })
     }
 
@@ -83,25 +78,35 @@ export async function POST(request: Request) {
           id,
           name,
           src: `/media/gallery/${name}`,
+          contentType: file.type,
           caption: file.name.replace(/\.[^.]+$/, '').replace(/[-_]+/g, ' ').trim() || 'Photo',
           content: Buffer.from(await file.arrayBuffer()),
         }
       }))
 
+      const uploaded: string[] = []
       try {
-        await Promise.all(uploads.map((upload) => writeFile(join(directory, upload.name), upload.content)))
-        const db = getDb()
-        const insert = db.prepare('INSERT INTO gallery (id, src, alt, caption, category, campaign_id, story_id) VALUES (?, ?, ?, ?, ?, NULL, NULL)')
-        db.exec('BEGIN')
-        try {
-          for (const upload of uploads) insert.run(upload.id, upload.src, upload.caption, upload.caption, category)
-          db.exec('COMMIT')
-        } catch (error) {
-          db.exec('ROLLBACK')
-          throw error
+        for (const upload of uploads) {
+          const { error } = await storage.upload(upload.name, upload.content, {
+            contentType: upload.contentType,
+            upsert: false,
+          })
+          if (error) throw new Error(`Could not upload gallery image: ${error.message}`)
+          uploaded.push(upload.name)
         }
+        const { error } = await createAdminClient().from('gallery').insert(uploads.map((upload) => ({
+          id: upload.id, src: upload.src, alt: upload.caption, caption: upload.caption,
+          category, campaign_id: null, story_id: null,
+        })))
+        if (error) throw new Error(`Could not save gallery photos: ${error.message}`)
       } catch (error) {
-        await Promise.all(uploads.map((upload) => unlink(join(directory, upload.name)).catch(() => undefined)))
+        if (uploaded.length) {
+          const { error: cleanupError } = await storage.remove(uploaded)
+          if (cleanupError) {
+            const message = error instanceof Error ? error.message : 'The gallery photos could not be saved.'
+            throw new Error(`${message} Cleanup also failed: ${cleanupError.message}`)
+          }
+        }
         throw error
       }
       revalidatePath('/gallery')
@@ -112,31 +117,23 @@ export async function POST(request: Request) {
     if (purpose === 'gallery-replace') {
       const itemId = formData.get('itemId')
       if (typeof itemId !== 'string' || !itemId) throw new Error('Choose a gallery image to replace.')
-      const photo = galleryPhoto(itemId)
+      const photo = await galleryPhoto(itemId)
       if (!photo) throw new Error('Photo was not found.')
       const file = imageFile(formData.get('photo'), 8 * 1024 * 1024, 'an image')
       const name = `g-${randomUUID()}.${imageTypes[file.type]}`
-      const path = join(directory, name)
-      await writeFile(path, Buffer.from(await file.arrayBuffer()))
+      const { error: uploadError } = await storage.upload(name, Buffer.from(await file.arrayBuffer()), {
+        contentType: file.type,
+        upsert: false,
+      })
+      if (uploadError) throw new Error(`Could not upload replacement image: ${uploadError.message}`)
       const nextSrc = `/media/gallery/${name}`
-      const db = getDb()
-      try {
-        db.exec('BEGIN')
-        try {
-          replacePhotoSrc(photo.src, nextSrc)
-          db.prepare('UPDATE gallery SET src = ? WHERE id = ?').run(nextSrc, photo.id)
-          db.exec('COMMIT')
-        } catch (error) {
-          db.exec('ROLLBACK')
-          throw error
-        }
-      } catch (error) {
-        await unlink(path).catch(() => undefined)
-        throw error
-      }
-      const oldName = galleryFileName(photo.src)
-      const stillUsed = db.prepare('SELECT 1 AS n FROM gallery WHERE src = ?').get(photo.src)
-      if (!stillUsed && oldName) await unlink(join(directory, oldName)).catch(() => undefined)
+      await replacePhotoSrc(photo.src, nextSrc)
+      const { data, error } = await createAdminClient().from('gallery').update({ src: nextSrc }).eq('id', photo.id).select('id')
+      if (error) throw new Error(`Could not update gallery photo: ${error.message}`)
+      if (!data?.length) throw new Error('Photo was not found.')
+      const { data: stillUsed, error: referenceError } = await createAdminClient().from('gallery').select('id').eq('src', photo.src).limit(1)
+      if (referenceError) throw new Error(`Could not check remaining gallery photo references: ${referenceError.message}`)
+      if (!stillUsed?.length) await removeGalleryObject(photo.src)
       for (const path of galleryRevalidationPaths) {
         if (path.includes('[')) revalidatePath(path, 'page')
         else revalidatePath(path)

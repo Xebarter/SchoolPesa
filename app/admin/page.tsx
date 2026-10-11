@@ -2,18 +2,25 @@ import Link from 'next/link'
 import { ArrowUpRight, GraduationCap, Megaphone, NotebookPen, Wallet } from 'lucide-react'
 import { StatusPill } from '@/components/admin/ui'
 import { CampaignBars, DonationsArea, LevelDonut } from '@/components/charts'
-import { getAuditLogs, getCampaignBars, getDonationSeries, getDonations, getImpact, getLevelSplit } from '@/lib/data'
+import { getAllCampaigns, getAuditLogs, getDonationSeries, getDonations, getImpact, getLevelSplit } from '@/lib/data'
 import { impactUpdatesInReview } from '@/lib/donor'
 import { formatDate, formatUGX } from '@/lib/format'
 
-export default function Page() {
-  const impactStats = getImpact()
-  const donationSeries = getDonationSeries()
-  const campaignBars = getCampaignBars()
-  const levelSplit = getLevelSplit()
-  const donations = getDonations().slice(0, 5)
-  const auditLogs = getAuditLogs().slice(0, 6)
-  const waiting = impactUpdatesInReview()
+export default async function Page() {
+  const [impactStats, donationSeries, allCampaigns, levelSplit, allDonations, allAuditLogs, waiting] = await Promise.all([
+    getImpact(),
+    getDonationSeries(),
+    getAllCampaigns(),
+    getLevelSplit(),
+    getDonations(),
+    getAuditLogs(),
+    impactUpdatesInReview(),
+  ])
+  const campaignBars = allCampaigns
+    .filter((item) => item.status !== 'draft')
+    .map((item) => ({ name: item.title.split(' ').slice(0, 2).join(' '), amount: Math.round(item.raised / 10_000) / 100 }))
+  const donations = allDonations.slice(0, 5)
+  const auditLogs = allAuditLogs.slice(0, 6)
   const stats = [
     { href: '/admin/donations', icon: Wallet, label: 'Total raised', value: formatUGX(impactStats.fundsRaised), hint: `${formatUGX(impactStats.thisMonth)} this month` },
     { href: '/admin/campaigns', icon: Megaphone, label: 'Active campaigns', value: String(impactStats.activeCampaigns), hint: `${impactStats.campaignsCompleted.toLocaleString()} completed` },

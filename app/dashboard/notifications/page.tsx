@@ -6,7 +6,7 @@ export const metadata = { title: 'Notifications' }
 
 export default async function Page() {
   const account = await currentAccount()
-  const notifications = account ? donorNotifications(account.email) : []
+  const notifications = account ? await donorNotifications(account.email) : []
   return (
     <div className="mx-auto max-w-6xl">
       <NotificationInbox items={notifications} />

@@ -1,4 +1,5 @@
-import { getDb, listBeneficiaries, listCampaigns, listDonations, listStories } from '@/lib/db'
+import { createAdminClient } from '@/lib/supabase/admin'
+import { listBeneficiaries, listCampaigns, listDonations, listStories } from '@/lib/db'
 import type { Beneficiary, Campaign, Donation, NotificationItem, Story } from '@/lib/types'
 
 export function donorKey(email: string) {
@@ -9,22 +10,26 @@ function matchEmail(email: string) {
   return donorKey(email)
 }
 
-export function donorDonations(email: string) {
+export async function donorDonations(email: string) {
   const key = matchEmail(email)
-  return listDonations().filter((item) => donorKey(item.email) === key)
+  return (await listDonations()).filter((item) => donorKey(item.email) === key)
 }
 
-export function donorNotifications(email: string): NotificationItem[] {
-  const rows = getDb().prepare('SELECT id, title, body, date, read, kind, href, created_at FROM notifications WHERE lower(email) = ? ORDER BY COALESCE(created_at, date) DESC').all(matchEmail(email)) as Record<string, string | number | null>[]
-  return rows.map((row) => ({
-    id: String(row.id),
-    title: String(row.title),
-    body: String(row.body ?? ''),
-    date: String(row.date),
-    read: Boolean(row.read),
-    kind: row.kind ? String(row.kind) : 'system',
-    href: row.href ? String(row.href) : undefined,
-    createdAt: row.created_at ? String(row.created_at) : undefined,
+export async function donorNotifications(email: string): Promise<NotificationItem[]> {
+  const { data, error } = await createAdminClient().from('notifications')
+    .select('id, title, body, date, read, kind, href, created_at')
+    .ilike('email', matchEmail(email))
+    .order('created_at', { ascending: false })
+  if (error) throw new Error(`Could not load donor notifications: ${error.message}`)
+  return (data ?? []).map((row) => ({
+    id: row.id,
+    title: row.title,
+    body: row.body ?? '',
+    date: row.date,
+    read: row.read,
+    kind: row.kind ?? 'system',
+    href: row.href ?? undefined,
+    createdAt: row.created_at ?? undefined,
   }))
 }
 
@@ -49,27 +54,32 @@ const preferenceDefaults: DonorPreferences = {
 }
 
 type PreferenceRow = {
-  email_updates: number
-  receipt_emails: number
-  digest: number
-  product_news: number
-  anonymous_default: number
-  public_recognition: number
+  email_updates: boolean
+  receipt_emails: boolean
+  digest: boolean
+  product_news: boolean
+  anonymous_default: boolean
+  public_recognition: boolean
   update_cadence: string
 }
 
-function cadenceOf(value: string, emailUpdates: number): UpdateCadence {
+function cadenceOf(value: string, emailUpdates: boolean): UpdateCadence {
   if (!emailUpdates) return 'off'
   if (value === 'weekly' || value === 'off' || value === 'instant') return value
   return 'instant'
 }
 
-export function donorPreferences(email: string): DonorPreferences {
+export async function donorPreferences(email: string): Promise<DonorPreferences> {
   const key = matchEmail(email)
-  const row = getDb().prepare(`SELECT email_updates, receipt_emails, digest, product_news, anonymous_default, public_recognition, update_cadence
-    FROM donor_settings WHERE lower(email) = ?`).get(key) as PreferenceRow | undefined
+  const db = createAdminClient()
+  const { data: row, error } = await db.from('donor_settings')
+    .select('email_updates, receipt_emails, digest, product_news, anonymous_default, public_recognition, update_cadence')
+    .ilike('email', key)
+    .maybeSingle()
+  if (error) throw new Error(`Could not load donor preferences: ${error.message}`)
   if (!row) {
-    const subscribed = getDb().prepare('SELECT 1 AS n FROM newsletter WHERE lower(email) = ?').get(key)
+    const { data: subscribed, error: newsletterError } = await db.from('newsletter').select('id').ilike('email', key).maybeSingle()
+    if (newsletterError) throw new Error(`Could not load newsletter preference: ${newsletterError.message}`)
     return { ...preferenceDefaults, productNews: Boolean(subscribed) }
   }
   return {
@@ -82,40 +92,52 @@ export function donorPreferences(email: string): DonorPreferences {
   }
 }
 
-export function donorEmailUpdates(email: string) {
-  return donorPreferences(email).updateCadence !== 'off'
+export async function donorEmailUpdates(email: string) {
+  return (await donorPreferences(email)).updateCadence !== 'off'
 }
 
 export type LinkedCampaign = Campaign & { note: string }
 
-export function donorCampaigns(email: string): LinkedCampaign[] {
+export async function donorCampaigns(email: string): Promise<LinkedCampaign[]> {
   const key = matchEmail(email)
-  const donations = donorDonations(email)
-  const links = getDb().prepare('SELECT campaign_id, note, hidden FROM campaign_links WHERE lower(email) = ?').all(key) as { campaign_id: string; note: string; hidden: number }[]
-  const hidden = new Set(links.filter((item) => item.hidden).map((item) => item.campaign_id))
-  const notes = new Map(links.map((item) => [item.campaign_id, item.note]))
-  const ids = new Set<string>([
-    ...donations.map((item) => item.campaignId).filter((id): id is string => Boolean(id)),
-    ...links.filter((item) => !item.hidden).map((item) => item.campaign_id),
+  const db = createAdminClient()
+  const [{ data: links, error: linksError }, campaigns, gifts] = await Promise.all([
+    db.from('campaign_links').select('campaign_id, note, hidden').ilike('email', key),
+    listCampaigns(),
+    donorDonations(email),
   ])
-  return listCampaigns()
+  if (linksError) throw new Error(`Could not load followed campaigns: ${linksError.message}`)
+  const followed = links ?? []
+  const hidden = new Set(followed.filter((item) => item.hidden).map((item) => item.campaign_id))
+  const notes = new Map(followed.map((item) => [item.campaign_id, item.note]))
+  const ids = new Set<string>([
+    ...gifts.map((item) => item.campaignId).filter((id): id is string => Boolean(id)),
+    ...followed.filter((item) => !item.hidden).map((item) => item.campaign_id),
+  ])
+  return campaigns
     .filter((item) => ids.has(item.id) && !hidden.has(item.id))
     .map((item) => ({ ...item, note: notes.get(item.id) ?? '' }))
 }
 
 export type LinkedChild = Beneficiary & { note: string }
 
-export function donorChildren(email: string): LinkedChild[] {
+export async function donorChildren(email: string): Promise<LinkedChild[]> {
   const key = matchEmail(email)
-  const donations = donorDonations(email)
-  const links = getDb().prepare('SELECT beneficiary_id, note, hidden FROM sponsorships WHERE lower(email) = ?').all(key) as { beneficiary_id: string; note: string; hidden: number }[]
-  const hidden = new Set(links.filter((item) => item.hidden).map((item) => item.beneficiary_id))
-  const notes = new Map(links.map((item) => [item.beneficiary_id, item.note]))
+  const db = createAdminClient()
+  const [{ data: links, error: linksError }, beneficiaries, donations] = await Promise.all([
+    db.from('sponsorships').select('beneficiary_id, note, hidden').ilike('email', key),
+    listBeneficiaries(),
+    donorDonations(email),
+  ])
+  if (linksError) throw new Error(`Could not load learner sponsorships: ${linksError.message}`)
+  const followed = links ?? []
+  const hidden = new Set(followed.filter((item) => item.hidden).map((item) => item.beneficiary_id))
+  const notes = new Map(followed.map((item) => [item.beneficiary_id, item.note]))
   const ids = new Set<string>([
     ...donations.map((item) => item.beneficiaryId).filter((id): id is string => Boolean(id)),
-    ...links.filter((item) => !item.hidden).map((item) => item.beneficiary_id),
+    ...followed.filter((item) => !item.hidden).map((item) => item.beneficiary_id),
   ])
-  return listBeneficiaries()
+  return beneficiaries
     .filter((item) => ids.has(item.id) && !hidden.has(item.id))
     .map((item) => ({ ...item, note: notes.get(item.id) ?? '' }))
 }
@@ -169,30 +191,48 @@ function mapUpdate(row: UpdateRow): DonorUpdate {
   }
 }
 
-const updateSelect = `SELECT u.id, u.email, u.title, u.body, u.date, u.status, u.campaign_id, u.beneficiary_id, u.review_note, u.story_id, u.category, s.slug AS story_slug
-  FROM donor_updates u LEFT JOIN stories s ON s.id = u.story_id`
-
-export function donorUpdates(email: string): DonorUpdate[] {
-  const rows = getDb().prepare(`${updateSelect} WHERE lower(u.email) = ? ORDER BY u.date DESC, u.id DESC`).all(matchEmail(email)) as UpdateRow[]
-  return rows.map(mapUpdate)
+async function joinedUpdates(rows: Omit<UpdateRow, 'story_slug'>[]): Promise<DonorUpdate[]> {
+  const ids = rows.map((row) => row.story_id).filter((id): id is string => Boolean(id))
+  const { data: stories, error } = ids.length
+    ? await createAdminClient().from('stories').select('id, slug').in('id', ids)
+    : { data: [], error: null }
+  if (error) throw new Error(`Could not load update stories: ${error.message}`)
+  const slugs = new Map((stories ?? []).map((story) => [story.id, story.slug]))
+  return rows.map((row) => mapUpdate({ ...row, story_slug: row.story_id ? slugs.get(row.story_id) ?? null : null }))
 }
 
-export function listImpactUpdates(): DonorUpdate[] {
-  const rows = getDb().prepare(`${updateSelect} ORDER BY CASE u.status WHEN 'submitted' THEN 0 WHEN 'changes' THEN 1 WHEN 'published' THEN 2 WHEN 'declined' THEN 3 ELSE 4 END, u.date DESC`).all() as UpdateRow[]
-  return rows.map(mapUpdate)
+export async function donorUpdates(email: string): Promise<DonorUpdate[]> {
+  const { data, error } = await createAdminClient().from('donor_updates').select('*')
+    .ilike('email', matchEmail(email))
+    .order('date', { ascending: false })
+    .order('id', { ascending: false })
+  if (error) throw new Error(`Could not load donor updates: ${error.message}`)
+  return joinedUpdates((data ?? []) as Omit<UpdateRow, 'story_slug'>[])
 }
 
-export function impactUpdatesInReview() {
-  const row = getDb().prepare("SELECT COUNT(*) AS n FROM donor_updates WHERE status = 'submitted'").get() as { n: number }
-  return Number(row.n)
+export async function listImpactUpdates(): Promise<DonorUpdate[]> {
+  const { data, error } = await createAdminClient().from('donor_updates').select('*').order('date', { ascending: false })
+  if (error) throw new Error(`Could not load impact updates: ${error.message}`)
+  const priority: Record<string, number> = { submitted: 0, changes: 1, published: 2, declined: 3, draft: 4 }
+  const ordered = (data ?? []).sort((a, b) => (priority[a.status] ?? 4) - (priority[b.status] ?? 4))
+  return joinedUpdates(ordered as Omit<UpdateRow, 'story_slug'>[])
 }
 
-export function donorStories(email: string): Story[] {
-  const campaignIds = new Set(donorCampaigns(email).map((item) => item.id))
-  const childIds = new Set(donorChildren(email).map((item) => item.id))
-  return listStories().filter((story) => story.status === 'published' && ((story.campaignId && campaignIds.has(story.campaignId)) || (story.beneficiaryId && childIds.has(story.beneficiaryId))))
+export async function impactUpdatesInReview() {
+  const { count, error } = await createAdminClient().from('donor_updates')
+    .select('id', { count: 'exact', head: true })
+    .eq('status', 'submitted')
+  if (error) throw new Error(`Could not count impact updates in review: ${error.message}`)
+  return count ?? 0
 }
 
-export function ownedDonation(email: string, id: string): Donation | undefined {
-  return donorDonations(email).find((item) => item.id === id)
+export async function donorStories(email: string): Promise<Story[]> {
+  const [campaigns, children, stories] = await Promise.all([donorCampaigns(email), donorChildren(email), listStories()])
+  const campaignIds = new Set(campaigns.map((item) => item.id))
+  const childIds = new Set(children.map((item) => item.id))
+  return stories.filter((story) => story.status === 'published' && ((story.campaignId && campaignIds.has(story.campaignId)) || (story.beneficiaryId && childIds.has(story.beneficiaryId))))
+}
+
+export async function ownedDonation(email: string, id: string): Promise<Donation | undefined> {
+  return (await donorDonations(email)).find((item) => item.id === id)
 }

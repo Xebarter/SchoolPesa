@@ -8,13 +8,15 @@ import { formatDate, formatUGX } from '@/lib/format'
 
 export const metadata = { title: 'Our impact' }
 
-export default function Page() {
-  const campaigns = getCampaigns()
-  const stories = getStories()
-  const impactStats = getImpact()
-  const donationSeries = getDonationSeries()
-  const campaignBars = getCampaignBars()
-  const levelSplit = getLevelSplit()
+export default async function Page() {
+  const [campaigns, stories, impactStats, donationSeries, campaignBars, levelSplit] = await Promise.all([
+    getCampaigns(),
+    getStories(),
+    getImpact(),
+    getDonationSeries(),
+    getCampaignBars(),
+    getLevelSplit(),
+  ])
   const stats = [
     [impactStats.childrenSupported.toLocaleString(), 'Children supported'],
     [String(impactStats.schoolsReached), 'Schools reached'],

@@ -1,8 +1,8 @@
 import { BeneficiaryManager } from '@/components/admin/beneficiary-manager'
-import { getBeneficiaries } from '@/lib/data'
+import { getAllBeneficiaries } from '@/lib/data'
 
 export const metadata = { title: 'Admin beneficiaries' }
 
-export default function Page() {
-  return <BeneficiaryManager initial={getBeneficiaries()} />
+export default async function Page() {
+  return <BeneficiaryManager initial={await getAllBeneficiaries()} />
 }

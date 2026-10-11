@@ -7,8 +7,8 @@ export const metadata = { title: 'Sponsored children' }
 
 export default async function Page() {
   const account = await currentAccount()
-  const learners = getBeneficiaries()
-  const saved = account ? donorChildren(account.email) : []
+  const learners = await getBeneficiaries()
+  const saved = account ? await donorChildren(account.email) : []
   const owned = account ? learners.filter((item) => item.ownerEmail === account.email.trim().toLowerCase()) : []
   return (
     <div className="mx-auto max-w-6xl">

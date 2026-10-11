@@ -20,9 +20,9 @@ const assurances = [
 export default async function Page({ searchParams }: { searchParams: Promise<{ campaign?: string }> }) {
   const { campaign: slug } = await searchParams
   const account = await currentAccount()
-  const anonymousDefault = account ? donorPreferences(account.email).anonymousDefault : true
-  const campaigns = getCampaigns()
-  const beneficiaries = getBeneficiaries()
+  const preferences = account ? await donorPreferences(account.email) : undefined
+  const anonymousDefault = preferences?.anonymousDefault ?? true
+  const [campaigns, beneficiaries] = await Promise.all([getCampaigns(), getBeneficiaries()])
   const campaign = slug ? campaigns.find((item) => item.slug === slug) : undefined
   return (
     <SiteShell>

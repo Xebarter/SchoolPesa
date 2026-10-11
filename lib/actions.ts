@@ -1,10 +1,8 @@
 'use server'
 
-import { unlink } from 'node:fs/promises'
-import { join } from 'node:path'
 import { revalidatePath } from 'next/cache'
 import { getDb, syncCampaignImpact } from '@/lib/db'
-import { galleryPhoto, photoUses } from '@/lib/gallery-images'
+import { galleryPhoto, photoUses, removeGalleryObject } from '@/lib/gallery-images'
 import { assertAdmin } from '@/lib/supabase/session'
 import type { CampaignStatus, CheckoutDraft, Expense, GalleryItem, Story, Volunteer } from '@/lib/types'
 
@@ -12,51 +10,41 @@ function id(prefix: string) {
   return `${prefix}-${Date.now().toString(36)}`
 }
 
-function audit(user: string, action: string, resource: string, details: string) {
+async function result<T>(operation: PromiseLike<{ data: T; error: { message: string } | null }>, context: string): Promise<T> {
+  const { data, error } = await operation
+  if (error) throw new Error(`Could not ${context}: ${error.message}`)
+  return data
+}
+
+async function audit(user: string, action: string, resource: string, details: string) {
   const now = new Date()
-  getDb().prepare('INSERT INTO audit_logs (id, user, action, resource, date, time, details) VALUES (?, ?, ?, ?, ?, ?, ?)').run(
-    id('a'),
-    user,
-    action,
-    resource,
-    now.toISOString().slice(0, 10),
-    now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
-    details,
-  )
+  await result(getDb().from('audit_logs').insert({
+    id: id('a'), user, action, resource, date: now.toISOString().slice(0, 10),
+    time: now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }), details,
+  }), 'write audit log')
 }
 
 export async function recordDonation(draft: CheckoutDraft, reference: string) {
   const donationId = id('d')
   const today = new Date().toISOString().slice(0, 10)
   const db = getDb()
-  db.prepare(`INSERT INTO donations (id, donor_name, anonymous, email, phone, amount, frequency, campaign_id, beneficiary_id, support_target, method, transaction_id, date, status, message)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
-    donationId,
-    draft.anonymous ? 'Anonymous' : draft.name,
-    draft.anonymous ? 1 : 0,
-    draft.email,
-    draft.phone,
-    draft.amount,
-    draft.frequency,
-    draft.campaignId ?? null,
-    draft.beneficiaryId ?? null,
-    draft.supportTarget,
-    'Prepared checkout',
-    reference,
-    today,
-    'Pending',
-    draft.message || null,
-  )
-  db.prepare('INSERT INTO transactions (id, donation_id, provider, reference, amount, status, date) VALUES (?, ?, ?, ?, ?, ?, ?)').run(
-    id('pt'), donationId, 'Payment provider', reference, draft.amount, 'Pending', today,
-  )
-  db.prepare('INSERT INTO notifications (id, title, body, date, read) VALUES (?, ?, ?, ?, 0)').run(
-    id('nt'),
-    'Gift prepared',
-    `${draft.anonymous ? 'A donor' : draft.name} prepared ${draft.amount} UGX. Reference ${reference}.`,
-    today,
-  )
-  audit(draft.name || 'Donor', 'prepared', 'Donation', `Prepared gift ${reference}`)
+  await result(db.from('donations').insert({
+    id: donationId, donor_name: draft.anonymous ? 'Anonymous' : draft.name, anonymous: draft.anonymous,
+    email: draft.email, phone: draft.phone, amount: draft.amount, frequency: draft.frequency,
+    campaign_id: draft.campaignId ?? null, beneficiary_id: draft.beneficiaryId ?? null,
+    support_target: draft.supportTarget, method: 'Prepared checkout', transaction_id: reference,
+    date: today, status: 'Pending', message: draft.message || null,
+  }), 'record donation')
+  await result(db.from('transactions').insert({
+    id: id('pt'), donation_id: donationId, provider: 'Payment provider', reference,
+    amount: draft.amount, status: 'Pending', date: today,
+  }), 'record donation transaction')
+  await result(db.from('notifications').insert({
+    id: id('nt'), title: 'Gift prepared',
+    body: `${draft.anonymous ? 'A donor' : draft.name} prepared ${draft.amount} UGX. Reference ${reference}.`,
+    date: today, read: false,
+  }), 'create donation notification')
+  await audit(draft.name || 'Donor', 'prepared', 'Donation', `Prepared gift ${reference}`)
   revalidatePath('/dashboard')
   revalidatePath('/admin')
   revalidatePath('/admin/donations')
@@ -106,33 +94,21 @@ export async function createCampaign(input: {
   const campaignId = id('camp')
   const slug = slugify(input.slug || title) || `campaign-${campaignId.slice(-4)}`
   try {
-    getDb().prepare(`INSERT INTO campaigns (id, slug, title, summary, description, story, category, level, location, status, target, raised, donors, deadline, created_at, image, gallery, video, beneficiary_id, seo_title, seo_description, updates)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?, ?, ?, ?, ?, ?, '[]')`).run(
-      campaignId,
-      slug,
-      title,
-      input.summary.trim(),
-      input.description.trim(),
-      input.description.trim(),
-      input.category.trim() || 'School Fees',
-      input.level,
-      input.location.trim(),
-      input.status,
-      target,
-      input.deadline,
-      input.createdAt || new Date().toISOString().slice(0, 10),
-      input.image?.trim() || '/school-pesa-hero.png',
-      galleryJson(input.gallery),
-      input.video?.trim() || null,
-      input.beneficiaryId || null,
-      input.seoTitle.trim() || title,
-      input.seoDescription.trim() || input.summary.trim(),
-    )
+    await result(getDb().from('campaigns').insert({
+      id: campaignId, slug, title, summary: input.summary.trim(), description: input.description.trim(),
+      story: input.description.trim(), category: input.category.trim() || 'School Fees', level: input.level,
+      location: input.location.trim(), status: input.status, target, raised: 0, donors: 0,
+      deadline: input.deadline, created_at: input.createdAt || new Date().toISOString().slice(0, 10),
+      image: input.image?.trim() || '/school-pesa-hero.png', gallery: JSON.parse(galleryJson(input.gallery)),
+      video: input.video?.trim() || null, beneficiary_id: input.beneficiaryId || null,
+      seo_title: input.seoTitle.trim() || title, seo_description: input.seoDescription.trim() || input.summary.trim(),
+      updates: [],
+    }), 'create campaign')
   } catch (error) {
     readable(error, 'The campaign could not be created.')
   }
-  syncCampaignImpact()
-  audit('Campaign Manager', 'created', 'Campaign', `Created campaign "${title}"`)
+  await syncCampaignImpact()
+  await audit('Campaign Manager', 'created', 'Campaign', `Created campaign "${title}"`)
   revalidatePath('/campaigns')
   revalidatePath('/campaigns/[slug]', 'page')
   revalidatePath('/admin')
@@ -142,10 +118,10 @@ export async function createCampaign(input: {
 
 export async function updateCampaignStatus(campaignId: string, status: CampaignStatus) {
   await assertAdmin()
-  const result = getDb().prepare('UPDATE campaigns SET status = ? WHERE id = ?').run(status, campaignId)
-  if (Number(result.changes) === 0) throw new Error('Campaign was not found.')
-  syncCampaignImpact()
-  audit('Campaign Manager', 'updated', 'Campaign', `Set campaign ${campaignId} to ${status}`)
+  const updated = await result(getDb().from('campaigns').update({ status }).eq('id', campaignId).select('id'), 'update campaign')
+  if (!updated?.length) throw new Error('Campaign was not found.')
+  await syncCampaignImpact()
+  await audit('Campaign Manager', 'updated', 'Campaign', `Set campaign ${campaignId} to ${status}`)
   revalidatePath('/campaigns')
   revalidatePath('/campaigns/[slug]', 'page')
   revalidatePath('/admin')
@@ -168,22 +144,25 @@ export async function saveBeneficiary(input: {
   status?: string
 }) {
   await assertAdmin()
-  const db = getDb()
   const story = input.story ?? input.needs
   const profile = input.publicProfile === false ? 0 : 1
   const image = input.publicImage ? 1 : 0
   const visible = input.storyVisible === false ? 0 : 1
   const status = input.status || 'active'
   if (input.id) {
-    const result = db.prepare('UPDATE beneficiaries SET display_name = ?, level = ?, school = ?, location = ?, story = ?, needs = ?, target = ?, public_profile = ?, public_image = ?, story_visible = ?, status = ? WHERE id = ?').run(
-      input.displayName, input.level, input.school, input.location, story, input.needs, input.target, profile, image, visible, status, input.id,
-    )
-    if (Number(result.changes) === 0) throw new Error('Learner was not found.')
+    const updated = await result(getDb().from('beneficiaries').update({
+      display_name: input.displayName, level: input.level, school: input.school, location: input.location,
+      story, needs: input.needs, target: input.target, public_profile: Boolean(profile),
+      public_image: Boolean(image), story_visible: Boolean(visible), status,
+    }).eq('id', input.id).select('id'), 'update learner')
+    if (!updated?.length) throw new Error('Learner was not found.')
   } else {
-    db.prepare(`INSERT INTO beneficiaries (id, display_name, level, school, location, story, needs, target, raised, image, public_profile, public_image, story_visible, status, updates)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, '/school-pesa-hero.png', ?, ?, ?, ?, '[]')`).run(
-      id('ben'), input.displayName, input.level, input.school, input.location, story, input.needs, input.target, profile, image, visible, status,
-    )
+    await result(getDb().from('beneficiaries').insert({
+      id: id('ben'), display_name: input.displayName, level: input.level, school: input.school,
+      location: input.location, story, needs: input.needs, target: input.target, raised: 0,
+      image: '/school-pesa-hero.png', public_profile: Boolean(profile), public_image: Boolean(image),
+      story_visible: Boolean(visible), status, updates: [],
+    }), 'create learner')
   }
   revalidatePath('/sponsor')
   revalidatePath('/admin/beneficiaries')
@@ -193,108 +172,106 @@ export async function createStory(input: { title: string; body: string; category
   await assertAdmin()
   const slug = input.title.toLowerCase().replace(/[^a-z0-9]+/g, '-') || id('story')
   const today = new Date().toISOString().slice(0, 10)
-  getDb().prepare(`INSERT INTO stories (id, slug, title, excerpt, body, category, author, date, image, gallery, campaign_id, beneficiary_id, status, views)
-    VALUES (?, ?, ?, ?, ?, ?, 'School Pesa', ?, '/school-pesa-hero.png', '[]', NULL, NULL, ?, 0)`).run(
-    id('st'), slug, input.title, input.body.slice(0, 140), input.body, input.category, today, input.status,
-  )
-  audit('Content Manager', 'created', 'Story', `Saved story "${input.title}"`)
+  await result(getDb().from('stories').insert({
+    id: id('st'), slug, title: input.title, excerpt: input.body.slice(0, 140), body: input.body,
+    category: input.category, author: 'School Pesa', date: today, image: '/school-pesa-hero.png',
+    gallery: [], campaign_id: null, beneficiary_id: null, status: input.status, views: 0,
+  }), 'create story')
+  await audit('Content Manager', 'created', 'Story', `Saved story "${input.title}"`)
   revalidatePath('/stories')
   revalidatePath('/admin/stories')
 }
 
 export async function toggleStoryStatus(storyId: string, status: Story['status']) {
   await assertAdmin()
-  getDb().prepare('UPDATE stories SET status = ? WHERE id = ?').run(status, storyId)
+  const updated = await result(getDb().from('stories').update({ status }).eq('id', storyId).select('id'), 'update story status')
+  if (!updated?.length) throw new Error('Story was not found.')
   revalidatePath('/stories')
   revalidatePath('/admin/stories')
 }
 
 export async function createExpense(input: Omit<Expense, 'id' | 'status'> & { status?: Expense['status'] }) {
   await assertAdmin()
-  getDb().prepare('INSERT INTO expenses (id, date, category, campaign_id, description, amount, supplier, receipt, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
-    id('x'), input.date, input.category, input.campaignId ?? null, input.description, input.amount, input.supplier, input.receipt, input.status ?? 'recorded',
-  )
-  audit('Finance Admin', 'recorded', 'Expense', `Recorded ${input.receipt}`)
+  await result(getDb().from('expenses').insert({
+    id: id('x'), date: input.date, category: input.category, campaign_id: input.campaignId ?? null,
+    description: input.description, amount: input.amount, supplier: input.supplier, receipt: input.receipt,
+    status: input.status ?? 'recorded',
+  }), 'create expense')
+  await audit('Finance Admin', 'recorded', 'Expense', `Recorded ${input.receipt}`)
   revalidatePath('/admin/finance')
 }
 
 export async function createGalleryItem(input: Omit<GalleryItem, 'id' | 'src'>) {
   await assertAdmin()
-  getDb().prepare('INSERT INTO gallery (id, src, alt, caption, category, campaign_id, story_id) VALUES (?, ?, ?, ?, ?, ?, ?)').run(
-    id('g'), '/school-pesa-hero.png', input.alt, input.caption, input.category, input.campaignId ?? null, input.storyId ?? null,
-  )
+  await result(getDb().from('gallery').insert({
+    id: id('g'), src: '/school-pesa-hero.png', alt: input.alt, caption: input.caption,
+    category: input.category, campaign_id: input.campaignId ?? null, story_id: input.storyId ?? null,
+  }), 'create gallery photo')
   revalidatePath('/gallery')
   revalidatePath('/admin/gallery')
 }
 
-function photoFileName(src: string) {
-  if (!src.startsWith('/media/gallery/')) return ''
-  const name = src.slice('/media/gallery/'.length).split('?')[0]
-  return /^[a-z0-9-]+\.(jpg|jpeg|png|webp|gif)$/i.test(name) ? name : ''
-}
-
 export async function deleteGalleryItem(itemId: string) {
   await assertAdmin()
-  const photo = galleryPhoto(itemId)
+  const photo = await galleryPhoto(itemId)
   if (!photo) throw new Error('Photo was not found.')
-  const uses = photoUses(photo)
+  const uses = await photoUses(photo)
   if (uses.length) {
     const preview = uses.slice(0, 3).join(', ')
     const more = uses.length > 3 ? ` and ${uses.length - 3} more` : ''
     throw new Error(`This photo is used on ${preview}${more}. Replace it instead of deleting it.`)
   }
-  const result = getDb().prepare('DELETE FROM gallery WHERE id = ?').run(itemId)
-  if (Number(result.changes) === 0) throw new Error('Photo was not found.')
-  const stillUsed = getDb().prepare('SELECT 1 AS n FROM gallery WHERE src = ?').get(photo.src)
-  const name = photoFileName(photo.src)
-  if (!stillUsed && name) await unlink(join(process.cwd(), 'data', 'gallery', name)).catch(() => undefined)
+  const deleted = await result(getDb().from('gallery').delete().eq('id', itemId).select('id'), 'delete gallery photo')
+  if (!deleted?.length) throw new Error('Photo was not found.')
+  const stillUsed = await result(getDb().from('gallery').select('id').eq('src', photo.src).limit(1), 'check remaining gallery photo references')
+  if (!stillUsed?.length) await removeGalleryObject(photo.src)
   revalidatePath('/gallery')
   revalidatePath('/admin/gallery')
 }
 
 export async function submitVolunteer(input: Omit<Volunteer, 'id' | 'status'>) {
-  getDb().prepare('INSERT INTO volunteers (id, name, email, phone, skills, interest, availability, message, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
-    id('v'), input.name, input.email, input.phone, input.skills, input.interest, input.availability, input.message, 'new',
-  )
+  await result(getDb().from('volunteers').insert({
+    id: id('v'), name: input.name, email: input.email, phone: input.phone, skills: input.skills,
+    interest: input.interest, availability: input.availability, message: input.message, status: 'new',
+  }), 'submit volunteer application')
   revalidatePath('/admin/people')
 }
 
 export async function submitContact(input: { name: string; email: string; message: string }) {
-  getDb().prepare('INSERT INTO contacts (id, name, email, message, created_at) VALUES (?, ?, ?, ?, ?)').run(
-    id('c'), input.name, input.email, input.message, new Date().toISOString(),
-  )
+  await result(getDb().from('contacts').insert({ id: id('c'), name: input.name, email: input.email, message: input.message }), 'submit contact message')
 }
 
 export async function joinNewsletter(email: string) {
-  getDb().prepare('INSERT OR IGNORE INTO newsletter (id, email, created_at) VALUES (?, ?, ?)').run(id('n'), email, new Date().toISOString())
+  await result(getDb().from('newsletter').upsert({ id: id('n'), email }, { onConflict: 'email', ignoreDuplicates: true }), 'join newsletter')
 }
 
 export async function registerForEvent(eventName: string) {
-  getDb().prepare('INSERT INTO event_registrations (id, event_name, created_at) VALUES (?, ?, ?)').run(id('er'), eventName, new Date().toISOString())
+  await result(getDb().from('event_registrations').insert({ id: id('er'), event_name: eventName }), 'register for event')
 }
 
 export async function saveSettings(values: Record<string, string>) {
   await assertAdmin()
-  const statement = getDb().prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value')
-  for (const [key, value] of Object.entries(values)) statement.run(key, value)
-  audit('Super Admin', 'updated', 'Settings', 'Updated organization settings')
+  for (const [key, value] of Object.entries(values)) {
+    await result(getDb().from('settings').upsert({ key, value }, { onConflict: 'key' }), `save setting "${key}"`)
+  }
+  await audit('Super Admin', 'updated', 'Settings', 'Updated organization settings')
   revalidatePath('/admin/settings')
 }
 
 export async function saveDonorProfile(input: { name: string; email: string; phone: string }) {
-  const existing = getDb().prepare('SELECT id FROM users WHERE email = ?').get(input.email) as { id: string } | undefined
+  const existing = await result(getDb().from('users').select('id').eq('email', input.email).maybeSingle(), 'find donor profile')
   if (existing) {
-    getDb().prepare('UPDATE users SET name = ?, phone = ? WHERE id = ?').run(input.name, input.phone, existing.id)
+    await result(getDb().from('users').update({ name: input.name, phone: input.phone }).eq('id', existing.id), 'update donor profile')
   } else {
-    getDb().prepare('INSERT INTO users (id, name, email, role, phone) VALUES (?, ?, ?, ?, ?)').run(id('u'), input.name, input.email, 'Viewer', input.phone)
+    await result(getDb().from('users').insert({ id: id('u'), name: input.name, email: input.email, role: 'Viewer', phone: input.phone }), 'create donor profile')
   }
   revalidatePath('/dashboard/profile')
   revalidatePath('/admin/users')
 }
 
 export async function ensureDonor(input: { name: string; email: string }) {
-  const existing = getDb().prepare('SELECT id FROM users WHERE email = ?').get(input.email) as { id: string } | undefined
+  const existing = await result(getDb().from('users').select('id').eq('email', input.email).maybeSingle(), 'check donor account')
   if (existing) return
-  getDb().prepare('INSERT INTO users (id, name, email, role, phone) VALUES (?, ?, ?, ?, NULL)').run(id('u'), input.name || 'Donor', input.email, 'Viewer')
+  await result(getDb().from('users').insert({ id: id('u'), name: input.name || 'Donor', email: input.email, role: 'Viewer', phone: null }), 'create donor account')
   revalidatePath('/admin/users')
 }

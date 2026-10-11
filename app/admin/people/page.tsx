@@ -3,7 +3,8 @@ import { getDonations, getPartners, getVolunteers } from '@/lib/data'
 
 export const metadata = { title: 'Admin people' }
 
-export default function Page() {
-  const donors = getDonations().filter((item) => !item.anonymous)
-  return <PeopleBoard donors={donors} partners={getPartners()} volunteers={getVolunteers()} />
+export default async function Page() {
+  const [donations, partners, volunteers] = await Promise.all([getDonations(), getPartners(), getVolunteers()])
+  const donors = donations.filter((item) => !item.anonymous)
+  return <PeopleBoard donors={donors} partners={partners} volunteers={volunteers} />
 }

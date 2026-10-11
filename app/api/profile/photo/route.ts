@@ -1,8 +1,7 @@
 import { randomUUID } from 'node:crypto'
-import { mkdir, readdir, unlink, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
 import { NextResponse } from 'next/server'
-import { accountPhoto } from '@/lib/supabase/account'
+import { avatarObjectPath } from '@/lib/supabase/avatar-storage'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { createServerClient } from '@/lib/supabase/server'
 import { currentAccount } from '@/lib/supabase/session'
 
@@ -28,38 +27,37 @@ export async function POST(request: Request) {
     const extension = imageTypes[file.type]
     if (!extension) throw new Error('Use a JPG, PNG, or WebP image.')
 
-    const directory = join(process.cwd(), 'data', 'avatars')
-    await mkdir(directory, { recursive: true })
-    const name = `${account.id}.${randomUUID()}.${extension}`
-    const path = join(directory, name)
-    await writeFile(path, Buffer.from(await file.arrayBuffer()))
-
     const supabase = await createServerClient()
-    if (!supabase) {
-      await unlink(path)
-      throw new Error('Sign-in is not configured yet.')
-    }
+    if (!supabase) throw new Error('Sign-in is not configured yet.')
     const { data, error } = await supabase.auth.getUser()
-    if (error || !data.user) {
-      await unlink(path)
-      throw new Error(error?.message || 'Sign in to update your photo.')
-    }
+    if (error || !data.user || data.user.id !== account.id) throw new Error(error?.message || 'Sign in to update your photo.')
     const metadata = data.user.user_metadata
-    const current = accountPhoto(metadata)
+    const previousPath = avatarObjectPath(metadata?.avatar_path, account.id)
     const picture = typeof metadata?.picture === 'string' && metadata.picture.trim()
       ? metadata.picture
-      : current.startsWith('http') ? current : ''
+      : typeof metadata?.avatar_url === 'string' && metadata.avatar_url.startsWith('http') ? metadata.avatar_url : ''
+    const objectPath = `${account.id}/${randomUUID()}.${extension}`
+    const storage = createAdminClient().storage.from('avatars')
+    const { error: uploadError } = await storage.upload(objectPath, Buffer.from(await file.arrayBuffer()), {
+      contentType: file.type,
+      upsert: false,
+    })
+    if (uploadError) throw new Error(`Could not store profile photo: ${uploadError.message}`)
+
     const photo = `/avatars/${account.id}?v=${Date.now()}`
-    const { error: updateError } = await supabase.auth.updateUser({ data: { avatar_url: photo, picture } })
+    const { error: updateError } = await supabase.auth.updateUser({
+      data: { avatar_url: photo, picture, avatar_path: objectPath },
+    })
     if (updateError) {
-      await unlink(path)
+      const { error: cleanupError } = await storage.remove([objectPath])
+      if (cleanupError) throw new Error(`Could not update profile photo: ${updateError.message}. Cleanup failed: ${cleanupError.message}`)
       throw new Error(updateError.message)
     }
 
-    const existing = await readdir(directory).catch(() => [])
-    await Promise.all(existing
-      .filter((existingName) => existingName.startsWith(`${account.id}.`) && existingName !== name)
-      .map((existingName) => unlink(join(directory, existingName)).catch(() => undefined)))
+    if (previousPath) {
+      const { error: cleanupError } = await storage.remove([previousPath])
+      if (cleanupError) throw new Error(`Profile photo was updated, but the previous image could not be removed: ${cleanupError.message}`)
+    }
     return NextResponse.json({ photo })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'The photo could not be saved.'

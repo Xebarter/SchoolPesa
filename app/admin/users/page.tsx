@@ -3,6 +3,6 @@ import { getUsers } from '@/lib/data'
 
 export const metadata = { title: 'Admin users' }
 
-export default function Page() {
-  return <UserBoard users={getUsers()} />
+export default async function Page() {
+  return <UserBoard users={await getUsers()} />
 }

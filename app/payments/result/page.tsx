@@ -6,7 +6,7 @@ import { formatUGX } from '@/lib/format'
 
 export default async function Page({ searchParams }: { searchParams: Promise<{ reference?: string; outcome?: string }> }) {
   const { reference = '', outcome = 'success' } = await searchParams
-  const payment = reference ? paymentStatus(reference) : null
+  const payment = reference ? await paymentStatus(reference) : null
   const confirmed = payment?.status === 'Successful' || outcome === 'success'
   const cancelled = outcome === 'cancel'
   const title = cancelled ? 'The payment was cancelled.' : confirmed && payment?.status === 'Successful' ? 'Your gift is confirmed.' : outcome === 'failure' ? 'The payment was not completed.' : 'We are confirming your gift.'

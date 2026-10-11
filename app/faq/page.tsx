@@ -5,8 +5,8 @@ import { getFaqs } from '@/lib/data'
 
 export const metadata = { title: 'FAQs' }
 
-export default function Page() {
-  const faqs = getFaqs()
+export default async function Page() {
+  const faqs = await getFaqs()
   return (
     <SiteShell>
       <Band>

@@ -1,26 +1,26 @@
-import { readFile, readdir } from 'node:fs/promises'
-import { join } from 'node:path'
 import { NextResponse } from 'next/server'
-
-const mime: Record<string, string> = {
-  jpg: 'image/jpeg',
-  jpeg: 'image/jpeg',
-  png: 'image/png',
-  webp: 'image/webp',
-}
+import { createAdminClient } from '@/lib/supabase/admin'
+import { avatarObjectPath } from '@/lib/supabase/avatar-storage'
+import { createServerClient } from '@/lib/supabase/server'
 
 export async function GET(_request: Request, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params
   if (!/^[0-9a-f-]{36}$/i.test(id)) return new NextResponse(null, { status: 404 })
-  const dir = join(process.cwd(), 'data', 'avatars')
-  const files = await readdir(dir).catch(() => [])
-  const name = files.find((file) => file.startsWith(`${id}.`))
-  if (!name) return new NextResponse(null, { status: 404 })
-  const extension = name.split('.').pop() ?? ''
-  const body = await readFile(join(dir, name))
-  return new NextResponse(body, {
+  const supabase = await createServerClient()
+  if (!supabase) return new NextResponse(null, { status: 404 })
+  const { data, error: authError } = await supabase.auth.getUser()
+  if (authError || !data.user || data.user.id !== id) return new NextResponse(null, { status: 404 })
+  const path = avatarObjectPath(data.user.user_metadata?.avatar_path, id)
+  if (!path) return new NextResponse(null, { status: 404 })
+
+  const { data: image, error } = await createAdminClient().storage.from('avatars').download(path)
+  if (error) {
+    if (error.statusCode === '404') return new NextResponse(null, { status: 404 })
+    throw new Error(`Could not load profile photo: ${error.message}`)
+  }
+  return new NextResponse(new Uint8Array(await image.arrayBuffer()), {
     headers: {
-      'Content-Type': mime[extension] ?? 'application/octet-stream',
+      'Content-Type': image.type || 'application/octet-stream',
       'Cache-Control': 'private, max-age=3600',
     },
   })

@@ -6,7 +6,7 @@ import { paymentStatus } from '@/lib/checkout'
 import { formatUGX } from '@/lib/format'
 
 export async function PaymentResult({ reference, outcome }: { reference: string; outcome: 'success' | 'failure' | 'cancel' }) {
-  const payment = reference ? paymentStatus(reference) : null
+  const payment = reference ? await paymentStatus(reference) : null
   const confirmed = payment?.status === 'Successful'
   const title = outcome === 'cancel'
     ? 'The payment was cancelled.'

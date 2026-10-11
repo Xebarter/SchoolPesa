@@ -1,12 +1,16 @@
 import { ImpactReview } from '@/components/admin/impact-review'
-import { listBeneficiaries, listCampaigns } from '@/lib/db'
+import { getAllBeneficiaries, getAllCampaigns } from '@/lib/data'
 import { listImpactUpdates } from '@/lib/donor'
 
 export const metadata = { title: 'Impact updates' }
 
-export default function Page() {
-  const updates = listImpactUpdates()
-  const campaigns = listCampaigns().map((item) => ({ id: item.id, label: item.title }))
-  const learners = listBeneficiaries().map((item) => ({ id: item.id, label: item.displayName }))
+export default async function Page() {
+  const [updates, allCampaigns, allBeneficiaries] = await Promise.all([
+    listImpactUpdates(),
+    getAllCampaigns(),
+    getAllBeneficiaries(),
+  ])
+  const campaigns = allCampaigns.map((item) => ({ id: item.id, label: item.title }))
+  const learners = allBeneficiaries.map((item) => ({ id: item.id, label: item.displayName }))
   return <ImpactReview updates={updates} campaigns={campaigns} learners={learners} />
 }

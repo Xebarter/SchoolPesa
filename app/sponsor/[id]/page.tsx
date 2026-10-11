@@ -8,17 +8,17 @@ import { Button } from '@/components/ui/button'
 import { getBeneficiaries, getBeneficiary } from '@/lib/data'
 import { formatDate, formatUGX } from '@/lib/format'
 
-export function generateStaticParams() {
-  return getBeneficiaries().map((item) => ({ id: item.id }))
+export async function generateStaticParams() {
+  return (await getBeneficiaries()).map((item) => ({ id: item.id }))
 }
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }) {
-  const learner = getBeneficiary((await params).id)
+  const learner = await getBeneficiary((await params).id)
   return { title: learner ? `${learner.displayName}'s learning journey` : 'Learner' }
 }
 
 export default async function Page({ params }: { params: Promise<{ id: string }> }) {
-  const learner = getBeneficiary((await params).id)
+  const learner = await getBeneficiary((await params).id)
   if (!learner || !learner.publicProfile) notFound()
   return (
     <SiteShell>

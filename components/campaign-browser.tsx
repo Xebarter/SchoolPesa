@@ -13,9 +13,6 @@ const pageSize = 6
 const statuses = [
   ['active', 'Open'],
   ['completed', 'Completed'],
-  ['paused', 'Paused'],
-  ['draft', 'Draft'],
-  ['archived', 'Archived'],
 ]
 
 export function CampaignBrowser({
@@ -39,14 +36,15 @@ export function CampaignBrowser({
   const visible = campaigns.slice(start, start + pageSize)
   const pages = Math.max(1, Math.ceil(campaigns.length / pageSize))
   const [lead, ...rest] = visible
-  const active = [
+  const filters: [string, string, string | undefined][] = [
     ['q', 'Search', query.q],
     ['level', 'Level', query.level],
     ['category', 'Category', query.category],
     ['status', 'Status', statuses.find(([value]) => value === query.status)?.[1] ?? query.status],
     ['location', 'Location', query.location],
     ['progress', 'Progress', query.progress === 'under-50' ? 'Under 50%' : query.progress === 'over-75' ? '75% or more' : ''],
-  ].filter((item) => item[2])
+  ]
+  const active = filters.filter((item): item is [string, string, string] => Boolean(item[2]))
 
   function update(patch: Record<string, string>) {
     const next = new URLSearchParams()

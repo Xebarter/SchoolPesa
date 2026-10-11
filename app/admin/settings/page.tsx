@@ -3,6 +3,6 @@ import { getSettings } from '@/lib/data'
 
 export const metadata = { title: 'Admin settings' }
 
-export default function Page() {
-  return <SettingsForm settings={getSettings()} />
+export default async function Page() {
+  return <SettingsForm settings={await getSettings()} />
 }

@@ -15,17 +15,18 @@ function slugify(value: string) {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || id('item')
 }
 
-function audit(user: string, action: string, resource: string, details: string) {
+async function result<T>(operation: PromiseLike<{ data: T; error: { message: string } | null }>, context: string): Promise<T> {
+  const { data, error } = await operation
+  if (error) throw new Error(`Could not ${context}: ${error.message}`)
+  return data
+}
+
+async function audit(user: string, action: string, resource: string, details: string) {
   const now = new Date()
-  getDb().prepare('INSERT INTO audit_logs (id, user, action, resource, date, time, details) VALUES (?, ?, ?, ?, ?, ?, ?)').run(
-    id('a'),
-    user,
-    action,
-    resource,
-    now.toISOString().slice(0, 10),
-    now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
-    details,
-  )
+  await result(getDb().from('audit_logs').insert({
+    id: id('a'), user, action, resource, date: now.toISOString().slice(0, 10),
+    time: now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }), details,
+  }), 'write audit log')
 }
 
 function touch() {
@@ -34,8 +35,8 @@ function touch() {
   }
 }
 
-function missing(result: { changes: number | bigint }, label: string) {
-  if (Number(result.changes) === 0) throw new Error(`${label} was not found.`)
+function missing(rows: unknown[] | null, label: string) {
+  if (!rows?.length) throw new Error(`${label} was not found.`)
 }
 
 function readable(error: unknown, fallback: string): never {
@@ -44,21 +45,14 @@ function readable(error: unknown, fallback: string): never {
   throw error instanceof Error ? error : new Error(fallback)
 }
 
-type GiftRow = { id: string; amount: number; campaign_id: string | null; beneficiary_id: string | null; status: string }
+type GiftRow = { id: string; transaction_id: string; status: string }
 
-function moveRaised(row: GiftRow, next: string) {
-  const db = getDb()
-  const wasSuccessful = row.status === 'Successful'
-  if (next === 'Successful' && !wasSuccessful) {
-    if (row.campaign_id) db.prepare('UPDATE campaigns SET raised = raised + ?, donors = donors + 1 WHERE id = ?').run(row.amount, row.campaign_id)
-    if (row.beneficiary_id) db.prepare('UPDATE beneficiaries SET raised = raised + ? WHERE id = ?').run(row.amount, row.beneficiary_id)
-    db.prepare('UPDATE impact_stats SET funds_raised = funds_raised + ?, this_month = this_month + ? WHERE id = 1').run(row.amount, row.amount)
-  }
-  if (wasSuccessful && next !== 'Successful') {
-    if (row.campaign_id) db.prepare('UPDATE campaigns SET raised = MAX(raised - ?, 0), donors = MAX(donors - 1, 0) WHERE id = ?').run(row.amount, row.campaign_id)
-    if (row.beneficiary_id) db.prepare('UPDATE beneficiaries SET raised = MAX(raised - ?, 0) WHERE id = ?').run(row.amount, row.beneficiary_id)
-    db.prepare('UPDATE impact_stats SET funds_raised = MAX(funds_raised - ?, 0) WHERE id = 1').run(row.amount)
-  }
+async function setDonationStatus(reference: string, status: string) {
+  const resultStatus = await result(
+    getDb().rpc('apply_payment_status', { p_reference: reference, p_status: status }),
+    'apply donation status',
+  )
+  if (resultStatus === 'missing') throw new Error('Gift was not found.')
 }
 
 export async function updateCampaign(campaignId: string, input: {
@@ -88,33 +82,20 @@ export async function updateCampaign(campaignId: string, input: {
   if (!input.deadline) throw new Error('Choose an end date.')
   const gallery = JSON.stringify((input.gallery ?? '').split(/[\n,]/).map((item) => item.trim()).filter(Boolean))
   try {
-    const result = getDb().prepare(`UPDATE campaigns SET slug = ?, title = ?, summary = ?, description = ?, story = ?, category = ?, level = ?, location = ?, status = ?, target = ?, deadline = ?, created_at = ?, image = ?, gallery = ?, video = ?, beneficiary_id = ?, seo_title = ?, seo_description = ? WHERE id = ?`).run(
-      slugify(input.slug || title),
-      title,
-      input.summary.trim(),
-      input.description.trim(),
-      input.description.trim(),
-      input.category.trim() || 'School Fees',
-      input.level,
-      input.location.trim(),
-      input.status,
-      target,
-      input.deadline,
-      input.createdAt || new Date().toISOString().slice(0, 10),
-      input.image?.trim() || '/school-pesa-hero.png',
-      gallery,
-      input.video?.trim() || null,
-      input.beneficiaryId || null,
-      input.seoTitle.trim() || title,
-      input.seoDescription.trim() || input.summary.trim(),
-      campaignId,
-    )
-    missing(result, 'Campaign')
+    const updated = await result(getDb().from('campaigns').update({
+      slug: slugify(input.slug || title), title, summary: input.summary.trim(), description: input.description.trim(),
+      story: input.description.trim(), category: input.category.trim() || 'School Fees', level: input.level,
+      location: input.location.trim(), status: input.status, target, deadline: input.deadline,
+      created_at: input.createdAt || new Date().toISOString().slice(0, 10), image: input.image?.trim() || '/school-pesa-hero.png',
+      gallery: JSON.parse(gallery), video: input.video?.trim() || null, beneficiary_id: input.beneficiaryId || null,
+      seo_title: input.seoTitle.trim() || title, seo_description: input.seoDescription.trim() || input.summary.trim(),
+    }).eq('id', campaignId).select('id'), 'update campaign')
+    missing(updated, 'Campaign')
   } catch (error) {
     readable(error, 'The campaign could not be updated.')
   }
-  syncCampaignImpact()
-  audit('Campaign Manager', 'updated', 'Campaign', `Updated campaign "${title}"`)
+  await syncCampaignImpact()
+  await audit('Campaign Manager', 'updated', 'Campaign', `Updated campaign "${title}"`)
   revalidatePath('/campaigns/[slug]', 'page')
   touch()
 }
@@ -122,23 +103,16 @@ export async function updateCampaign(campaignId: string, input: {
 export async function deleteCampaign(campaignId: string) {
   await assertAdmin()
   const db = getDb()
-  const existing = db.prepare('SELECT id FROM campaigns WHERE id = ?').get(campaignId)
+  const existing = await result(db.from('campaigns').select('id').eq('id', campaignId).maybeSingle(), 'find campaign')
   if (!existing) throw new Error('Campaign was not found.')
-  db.exec('BEGIN')
-  try {
-    db.prepare('UPDATE donations SET campaign_id = NULL WHERE campaign_id = ?').run(campaignId)
-    db.prepare('UPDATE stories SET campaign_id = NULL WHERE campaign_id = ?').run(campaignId)
-    db.prepare('UPDATE expenses SET campaign_id = NULL WHERE campaign_id = ?').run(campaignId)
-    db.prepare('UPDATE gallery SET campaign_id = NULL WHERE campaign_id = ?').run(campaignId)
-    db.prepare('DELETE FROM campaign_links WHERE campaign_id = ?').run(campaignId)
-    db.prepare('DELETE FROM campaigns WHERE id = ?').run(campaignId)
-    db.exec('COMMIT')
-  } catch (error) {
-    db.exec('ROLLBACK')
-    throw error
+  for (const table of ['donations', 'stories', 'expenses', 'gallery']) {
+    await result(db.from(table).update({ campaign_id: null }).eq('campaign_id', campaignId), `unlink campaign from ${table}`)
   }
-  syncCampaignImpact()
-  audit('Campaign Manager', 'deleted', 'Campaign', `Removed campaign ${campaignId}`)
+  await result(db.from('campaign_links').delete().eq('campaign_id', campaignId), 'delete campaign links')
+  const deleted = await result(db.from('campaigns').delete().eq('id', campaignId).select('id'), 'delete campaign')
+  missing(deleted, 'Campaign')
+  await syncCampaignImpact()
+  await audit('Campaign Manager', 'deleted', 'Campaign', `Removed campaign ${campaignId}`)
   revalidatePath('/campaigns/[slug]', 'page')
   touch()
 }
@@ -174,19 +148,22 @@ export async function saveBeneficiary(input: {
   const db = getDb()
   const photo = input.image?.trim()
   if (input.id) {
-    const existing = db.prepare('SELECT image FROM beneficiaries WHERE id = ?').get(input.id) as { image: string } | undefined
+    const existing = await result(db.from('beneficiaries').select('image').eq('id', input.id).maybeSingle(), 'find learner')
     if (!existing) throw new Error('Learner was not found.')
-    const result = db.prepare(`UPDATE beneficiaries SET display_name = ?, level = ?, school = ?, location = ?, story = ?, needs = ?, target = ?, image = ?, public_profile = ?, public_image = ?, story_visible = ?, status = ? WHERE id = ?`).run(
-      name, input.level, input.school.trim(), input.location.trim(), story, input.needs.trim(), input.target, photo || existing.image, profile, imageFlag, visible, input.status, input.id,
-    )
-    missing(result, 'Learner')
-    audit('Campaign Manager', 'updated', 'Beneficiary', `Updated learner "${name}"`)
+    const updated = await result(db.from('beneficiaries').update({
+      display_name: name, level: input.level, school: input.school.trim(), location: input.location.trim(),
+      story, needs: input.needs.trim(), target: input.target, image: photo || existing.image,
+      public_profile: Boolean(profile), public_image: Boolean(imageFlag), story_visible: Boolean(visible), status: input.status,
+    }).eq('id', input.id).select('id'), 'update learner')
+    missing(updated, 'Learner')
+    await audit('Campaign Manager', 'updated', 'Beneficiary', `Updated learner "${name}"`)
   } else {
-    db.prepare(`INSERT INTO beneficiaries (id, display_name, level, school, location, story, needs, target, raised, image, public_profile, public_image, story_visible, status, updates)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, '[]')`).run(
-      id('ben'), name, input.level, input.school.trim(), input.location.trim(), story, input.needs.trim(), input.target, photo || '/school-pesa-hero.png', profile, imageFlag, visible, input.status,
-    )
-    audit('Campaign Manager', 'created', 'Beneficiary', `Added learner "${name}"`)
+    await result(db.from('beneficiaries').insert({
+      id: id('ben'), display_name: name, level: input.level, school: input.school.trim(), location: input.location.trim(),
+      story, needs: input.needs.trim(), target: input.target, raised: 0, image: photo || '/school-pesa-hero.png',
+      public_profile: Boolean(profile), public_image: Boolean(imageFlag), story_visible: Boolean(visible), status: input.status, updates: [],
+    }), 'create learner')
+    await audit('Campaign Manager', 'created', 'Beneficiary', `Added learner "${name}"`)
   }
   revalidatePath('/sponsor/[id]', 'page')
   revalidatePath('/dashboard/sponsored')
@@ -196,22 +173,15 @@ export async function saveBeneficiary(input: {
 export async function deleteBeneficiary(beneficiaryId: string) {
   await assertAdmin()
   const db = getDb()
-  const existing = db.prepare('SELECT display_name FROM beneficiaries WHERE id = ?').get(beneficiaryId) as { display_name: string } | undefined
+  const existing = await result(db.from('beneficiaries').select('display_name').eq('id', beneficiaryId).maybeSingle(), 'find learner')
   if (!existing) throw new Error('Learner was not found.')
-  db.exec('BEGIN')
-  try {
-    db.prepare('UPDATE donations SET beneficiary_id = NULL WHERE beneficiary_id = ?').run(beneficiaryId)
-    db.prepare('UPDATE stories SET beneficiary_id = NULL WHERE beneficiary_id = ?').run(beneficiaryId)
-    db.prepare('UPDATE campaigns SET beneficiary_id = NULL WHERE beneficiary_id = ?').run(beneficiaryId)
-    db.prepare('UPDATE donor_updates SET beneficiary_id = NULL WHERE beneficiary_id = ?').run(beneficiaryId)
-    db.prepare('DELETE FROM sponsorships WHERE beneficiary_id = ?').run(beneficiaryId)
-    db.prepare('DELETE FROM beneficiaries WHERE id = ?').run(beneficiaryId)
-    db.exec('COMMIT')
-  } catch (error) {
-    db.exec('ROLLBACK')
-    throw error
+  for (const table of ['donations', 'stories', 'campaigns', 'donor_updates']) {
+    await result(db.from(table).update({ beneficiary_id: null }).eq('beneficiary_id', beneficiaryId), `unlink learner from ${table}`)
   }
-  audit('Campaign Manager', 'deleted', 'Beneficiary', `Removed learner "${existing.display_name}"`)
+  await result(db.from('sponsorships').delete().eq('beneficiary_id', beneficiaryId), 'delete learner sponsorships')
+  const deleted = await result(db.from('beneficiaries').delete().eq('id', beneficiaryId).select('id'), 'delete learner')
+  missing(deleted, 'Learner')
+  await audit('Campaign Manager', 'deleted', 'Beneficiary', `Removed learner "${existing.display_name}"`)
   revalidatePath('/sponsor/[id]', 'page')
   revalidatePath('/dashboard/sponsored')
   touch()
@@ -231,7 +201,7 @@ type GiftInput = {
 
 const giftMethods = ['Bank transfer', 'Cash', 'Mobile money', 'Cheque']
 
-function giftFields(input: GiftInput) {
+async function giftFields(input: GiftInput) {
   const donorName = input.donorName.trim()
   const email = input.email.trim().toLowerCase()
   const phone = input.phone.trim()
@@ -246,77 +216,84 @@ function giftFields(input: GiftInput) {
   const campaignId = input.campaignId?.trim() || null
   const beneficiaryId = input.beneficiaryId?.trim() || null
   const db = getDb()
-  if (campaignId && !db.prepare('SELECT id FROM campaigns WHERE id = ?').get(campaignId)) throw new Error('That campaign is not on file.')
-  if (beneficiaryId && !db.prepare('SELECT id FROM beneficiaries WHERE id = ?').get(beneficiaryId)) throw new Error('That learner is not on file.')
+  if (campaignId && !await result(db.from('campaigns').select('id').eq('id', campaignId).maybeSingle(), 'check campaign')) throw new Error('That campaign is not on file.')
+  if (beneficiaryId && !await result(db.from('beneficiaries').select('id').eq('id', beneficiaryId).maybeSingle(), 'check learner')) throw new Error('That learner is not on file.')
   const support = beneficiaryId ? 'child' : campaignId ? 'campaign' : 'general'
   return { donorName, email, phone, amount, date, method, campaignId, beneficiaryId, support, message: input.message.trim() }
 }
 
 export async function createAdminDonation(input: GiftInput) {
   await assertAdmin()
-  const fields = giftFields(input)
+  const fields = await giftFields(input)
   const donationId = id('d')
   const reference = `ADM-${Date.now().toString(36).toUpperCase()}`
-  const db = getDb()
-  db.prepare(`INSERT INTO donations (id, donor_name, anonymous, email, phone, amount, frequency, campaign_id, beneficiary_id, support_target, method, transaction_id, date, status, message, created_at)
-    VALUES (?, ?, 0, ?, ?, ?, 'one-time', ?, ?, ?, ?, ?, ?, 'Successful', ?, ?)`).run(
-    donationId, fields.donorName, fields.email, fields.phone, fields.amount, fields.campaignId, fields.beneficiaryId, fields.support, fields.method, reference, fields.date, fields.message || null, new Date().toISOString(),
-  )
-  db.prepare('INSERT INTO transactions (id, donation_id, provider, reference, amount, status, date) VALUES (?, ?, ?, ?, ?, ?, ?)').run(
-    id('pt'), donationId, fields.method, reference, fields.amount, 'Successful', fields.date,
-  )
-  moveRaised({ id: donationId, amount: fields.amount, campaign_id: fields.campaignId, beneficiary_id: fields.beneficiaryId, status: 'Pending' }, 'Successful')
-  alertDonor(fields.email, { title: 'Gift confirmed', body: `${formatUGX(fields.amount)} is confirmed. Reference ${reference}.`, kind: 'gift', href: '/dashboard/receipts' })
-  audit('Finance Admin', 'created', 'Donation', `Recorded gift ${reference}`)
+  await result(getDb().from('donations').insert({
+    id: donationId, donor_name: fields.donorName, anonymous: false, email: fields.email, phone: fields.phone,
+    amount: fields.amount, frequency: 'one-time', campaign_id: fields.campaignId, beneficiary_id: fields.beneficiaryId,
+    support_target: fields.support, method: fields.method, transaction_id: reference, date: fields.date,
+    status: 'Pending', message: fields.message || null, created_at: new Date().toISOString(),
+  }), 'record donation')
+  await result(getDb().from('transactions').insert({
+    id: id('pt'), donation_id: donationId, provider: fields.method, reference, amount: fields.amount,
+    status: 'Pending', date: fields.date,
+  }), 'record donation transaction')
+  await setDonationStatus(reference, 'Successful')
+  await alertDonor(fields.email, { title: 'Gift confirmed', body: `${formatUGX(fields.amount)} is confirmed. Reference ${reference}.`, kind: 'gift', href: '/dashboard/receipts' })
+  await audit('Finance Admin', 'created', 'Donation', `Recorded gift ${reference}`)
   touch()
 }
 
 export async function updateAdminDonation(donationId: string, input: GiftInput) {
   await assertAdmin()
-  const fields = giftFields(input)
+  const fields = await giftFields(input)
   const db = getDb()
-  const row = db.prepare('SELECT id, amount, campaign_id, beneficiary_id, status FROM donations WHERE id = ?').get(donationId) as GiftRow | undefined
+  const row = await result(db.from('donations').select('id, transaction_id, status').eq('id', donationId).maybeSingle(), 'find donation') as GiftRow | null
   if (!row) throw new Error('Gift was not found.')
-  if (row.status === 'Successful') moveRaised(row, 'Cancelled')
-  db.prepare(`UPDATE donations SET donor_name = ?, email = ?, phone = ?, amount = ?, method = ?, date = ?, campaign_id = ?, beneficiary_id = ?, support_target = ?, message = ? WHERE id = ?`).run(
-    fields.donorName, fields.email, fields.phone, fields.amount, fields.method, fields.date, fields.campaignId, fields.beneficiaryId, fields.support, fields.message || null, donationId,
-  )
-  db.prepare('UPDATE transactions SET provider = ?, amount = ?, date = ? WHERE donation_id = ?').run(fields.method, fields.amount, fields.date, donationId)
-  if (row.status === 'Successful') moveRaised({ ...row, amount: fields.amount, campaign_id: fields.campaignId, beneficiary_id: fields.beneficiaryId, status: 'Pending' }, 'Successful')
-  audit('Finance Admin', 'updated', 'Donation', `Updated gift for ${fields.donorName}`)
+  if (row.status === 'Successful') await setDonationStatus(row.transaction_id, 'Cancelled')
+  const updated = await result(db.from('donations').update({
+    donor_name: fields.donorName, email: fields.email, phone: fields.phone, amount: fields.amount,
+    method: fields.method, date: fields.date, campaign_id: fields.campaignId, beneficiary_id: fields.beneficiaryId,
+    support_target: fields.support, message: fields.message || null,
+  }).eq('id', donationId).select('id'), 'update donation')
+  missing(updated, 'Gift')
+  await result(db.from('transactions').update({ provider: fields.method, amount: fields.amount, date: fields.date }).eq('donation_id', donationId), 'update donation transactions')
+  if (row.status === 'Successful') await setDonationStatus(row.transaction_id, 'Successful')
+  await audit('Finance Admin', 'updated', 'Donation', `Updated gift for ${fields.donorName}`)
   touch()
 }
 
 export async function deleteAdminDonation(donationId: string) {
   await assertAdmin()
   const db = getDb()
-  const row = db.prepare('SELECT id, amount, campaign_id, beneficiary_id, status FROM donations WHERE id = ?').get(donationId) as GiftRow | undefined
+  const row = await result(db.from('donations').select('id, transaction_id, status').eq('id', donationId).maybeSingle(), 'find donation') as GiftRow | null
   if (!row) throw new Error('Gift was not found.')
-  if (row.status === 'Successful') moveRaised(row, 'Cancelled')
-  db.prepare('DELETE FROM transactions WHERE donation_id = ?').run(donationId)
-  db.prepare('DELETE FROM donations WHERE id = ?').run(donationId)
-  audit('Finance Admin', 'deleted', 'Donation', `Removed gift ${donationId}`)
+  if (row.status === 'Successful') await setDonationStatus(row.transaction_id, 'Cancelled')
+  await result(db.from('transactions').delete().eq('donation_id', donationId), 'delete donation transactions')
+  const deleted = await result(db.from('donations').delete().eq('id', donationId).select('id'), 'delete donation')
+  missing(deleted, 'Gift')
+  await audit('Finance Admin', 'deleted', 'Donation', `Removed gift ${donationId}`)
   touch()
 }
 
 export async function updateStory(storyId: string, input: { title: string; body: string; category: string; status: Story['status'] }) {
   await assertAdmin()
-  const result = getDb().prepare('UPDATE stories SET title = ?, excerpt = ?, body = ?, category = ?, status = ? WHERE id = ?').run(
-    input.title, input.body.slice(0, 140), input.body, input.category, input.status, storyId,
-  )
-  missing(result, 'Story')
-  audit('Content Manager', 'updated', 'Story', `Updated story "${input.title}"`)
+  const updated = await result(getDb().from('stories').update({
+    title: input.title, excerpt: input.body.slice(0, 140), body: input.body, category: input.category, status: input.status,
+  }).eq('id', storyId).select('id'), 'update story')
+  missing(updated, 'Story')
+  await audit('Content Manager', 'updated', 'Story', `Updated story "${input.title}"`)
   touch()
 }
 
 export async function deleteStory(storyId: string) {
   await assertAdmin()
   const db = getDb()
-  const existing = db.prepare('SELECT title FROM stories WHERE id = ?').get(storyId) as { title: string } | undefined
+  const existing = await result(db.from('stories').select('title').eq('id', storyId).maybeSingle(), 'find story')
   if (!existing) throw new Error('Story was not found.')
-  db.prepare('UPDATE gallery SET story_id = NULL WHERE story_id = ?').run(storyId)
-  db.prepare('DELETE FROM stories WHERE id = ?').run(storyId)
-  audit('Content Manager', 'deleted', 'Story', `Removed story "${existing.title}"`)
+  await result(db.from('gallery').update({ story_id: null }).eq('story_id', storyId), 'unlink story gallery photos')
+  const deleted = await result(db.from('stories').delete().eq('id', storyId).select('id'), 'delete story')
+  missing(deleted, 'Story')
+  await audit('Content Manager', 'deleted', 'Story', `Removed story "${existing.title}"`)
   revalidatePath('/stories/[slug]', 'page')
   touch()
 }
@@ -351,25 +328,25 @@ export async function saveStory(input: {
   const db = getDb()
   const campaignId = input.campaignId?.trim() || null
   const beneficiaryId = input.beneficiaryId?.trim() || null
-  if (campaignId && !db.prepare('SELECT id FROM campaigns WHERE id = ?').get(campaignId)) throw new Error('That campaign is not on file.')
-  if (beneficiaryId && !db.prepare('SELECT id FROM beneficiaries WHERE id = ?').get(beneficiaryId)) throw new Error('That learner is not on file.')
+  if (campaignId && !await result(db.from('campaigns').select('id').eq('id', campaignId).maybeSingle(), 'check campaign')) throw new Error('That campaign is not on file.')
+  if (beneficiaryId && !await result(db.from('beneficiaries').select('id').eq('id', beneficiaryId).maybeSingle(), 'check learner')) throw new Error('That learner is not on file.')
   const base = slugify(title)
   let slug = base
   let suffix = 2
-  while (db.prepare('SELECT id FROM stories WHERE slug = ? AND id != ?').get(slug, input.id ?? '')) slug = `${base}-${suffix++}`
+  while (await result(db.from('stories').select('id').eq('slug', slug).neq('id', input.id ?? '').maybeSingle(), 'check story address')) slug = `${base}-${suffix++}`
   if (input.id) {
-    const result = db.prepare('UPDATE stories SET slug = ?, title = ?, excerpt = ?, body = ?, category = ?, author = ?, image = ?, campaign_id = ?, beneficiary_id = ?, status = ? WHERE id = ?').run(
-      slug, title, excerpt, body, category, author, image, campaignId, beneficiaryId, input.status, input.id,
-    )
-    missing(result, 'Story')
-    audit('Content Manager', 'updated', 'Story', `Updated story "${title}"`)
+    const updated = await result(db.from('stories').update({
+      slug, title, excerpt, body, category, author, image, campaign_id: campaignId, beneficiary_id: beneficiaryId, status: input.status,
+    }).eq('id', input.id).select('id'), 'update story')
+    missing(updated, 'Story')
+    await audit('Content Manager', 'updated', 'Story', `Updated story "${title}"`)
   } else {
     const today = new Date().toISOString().slice(0, 10)
-    db.prepare(`INSERT INTO stories (id, slug, title, excerpt, body, category, author, date, image, gallery, campaign_id, beneficiary_id, status, views)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', ?, ?, ?, 0)`).run(
-      id('st'), slug, title, excerpt, body, category, author, today, image, campaignId, beneficiaryId, input.status,
-    )
-    audit('Content Manager', 'created', 'Story', `Saved story "${title}"`)
+    await result(db.from('stories').insert({
+      id: id('st'), slug, title, excerpt, body, category, author, date: today, image, gallery: [],
+      campaign_id: campaignId, beneficiary_id: beneficiaryId, status: input.status, views: 0,
+    }), 'create story')
+    await audit('Content Manager', 'created', 'Story', `Saved story "${title}"`)
   }
   revalidatePath('/stories/[slug]', 'page')
   touch()
@@ -378,21 +355,20 @@ export async function saveStory(input: {
 export async function setStoryStatus(storyId: string, status: string) {
   await assertAdmin()
   if (!storyStatuses.has(status)) throw new Error('Choose a status.')
-  const existing = getDb().prepare('SELECT title FROM stories WHERE id = ?').get(storyId) as { title: string } | undefined
+  const existing = await result(getDb().from('stories').select('title').eq('id', storyId).maybeSingle(), 'find story')
   if (!existing) throw new Error('Story was not found.')
-  getDb().prepare('UPDATE stories SET status = ? WHERE id = ?').run(status, storyId)
-  audit('Content Manager', status === 'published' ? 'published' : 'unpublished', 'Story', `${status === 'published' ? 'Published' : 'Unpublished'} "${existing.title}"`)
+  const updated = await result(getDb().from('stories').update({ status }).eq('id', storyId).select('id'), 'update story status')
+  missing(updated, 'Story')
+  await audit('Content Manager', status === 'published' ? 'published' : 'unpublished', 'Story', `${status === 'published' ? 'Published' : 'Unpublished'} "${existing.title}"`)
   revalidatePath('/stories/[slug]', 'page')
   touch()
 }
 
 export async function updateGalleryItem(itemId: string, input: { alt: string; caption: string; category: string }) {
   await assertAdmin()
-  const result = getDb().prepare('UPDATE gallery SET alt = ?, caption = ?, category = ? WHERE id = ?').run(
-    input.alt, input.caption, input.category, itemId,
-  )
-  missing(result, 'Photo')
-  audit('Content Manager', 'updated', 'Gallery', `Updated photo ${itemId}`)
+  const updated = await result(getDb().from('gallery').update({ alt: input.alt, caption: input.caption, category: input.category }).eq('id', itemId).select('id'), 'update gallery photo')
+  missing(updated, 'Photo')
+  await audit('Content Manager', 'updated', 'Gallery', `Updated photo ${itemId}`)
   touch()
 }
 
@@ -412,37 +388,39 @@ export async function saveExpense(input: Omit<Expense, 'id'> & { id?: string }) 
   const receipt = input.receipt.trim() || `RCP-${Date.now().toString(36).toUpperCase()}`
   const campaignId = input.campaignId?.trim() || null
   const db = getDb()
-  if (campaignId && !db.prepare('SELECT id FROM campaigns WHERE id = ?').get(campaignId)) throw new Error('That campaign is not on file.')
+  if (campaignId && !await result(db.from('campaigns').select('id').eq('id', campaignId).maybeSingle(), 'check campaign')) throw new Error('That campaign is not on file.')
   if (input.id) {
-    const result = db.prepare('UPDATE expenses SET date = ?, category = ?, campaign_id = ?, description = ?, amount = ?, supplier = ?, receipt = ?, status = ? WHERE id = ?').run(
-      date, category, campaignId, description, amount, supplier, receipt, input.status, input.id,
-    )
-    missing(result, 'Expense')
-    audit('Finance Admin', 'updated', 'Expense', `Updated ${receipt}`)
+    const updated = await result(db.from('expenses').update({
+      date, category, campaign_id: campaignId, description, amount, supplier, receipt, status: input.status,
+    }).eq('id', input.id).select('id'), 'update expense')
+    missing(updated, 'Expense')
+    await audit('Finance Admin', 'updated', 'Expense', `Updated ${receipt}`)
   } else {
-    db.prepare('INSERT INTO expenses (id, date, category, campaign_id, description, amount, supplier, receipt, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
-      id('x'), date, category, campaignId, description, amount, supplier, receipt, input.status,
-    )
-    audit('Finance Admin', 'recorded', 'Expense', `Recorded ${receipt}`)
+    await result(db.from('expenses').insert({
+      id: id('x'), date, category, campaign_id: campaignId, description, amount, supplier, receipt, status: input.status,
+    }), 'create expense')
+    await audit('Finance Admin', 'recorded', 'Expense', `Recorded ${receipt}`)
   }
   touch()
 }
 
 export async function updateExpense(expenseId: string, input: Omit<Expense, 'id'>) {
   await assertAdmin()
-  const result = getDb().prepare('UPDATE expenses SET date = ?, category = ?, campaign_id = ?, description = ?, amount = ?, supplier = ?, receipt = ?, status = ? WHERE id = ?').run(
-    input.date, input.category, input.campaignId ?? null, input.description, input.amount, input.supplier, input.receipt, input.status, expenseId,
-  )
-  missing(result, 'Expense')
-  audit('Finance Admin', 'updated', 'Expense', `Updated ${input.receipt || expenseId}`)
+  const updated = await result(getDb().from('expenses').update({
+    date: input.date, category: input.category, campaign_id: input.campaignId ?? null,
+    description: input.description, amount: input.amount, supplier: input.supplier,
+    receipt: input.receipt, status: input.status,
+  }).eq('id', expenseId).select('id'), 'update expense')
+  missing(updated, 'Expense')
+  await audit('Finance Admin', 'updated', 'Expense', `Updated ${input.receipt || expenseId}`)
   touch()
 }
 
 export async function deleteExpense(expenseId: string) {
   await assertAdmin()
-  const result = getDb().prepare('DELETE FROM expenses WHERE id = ?').run(expenseId)
-  missing(result, 'Expense')
-  audit('Finance Admin', 'deleted', 'Expense', `Removed expense ${expenseId}`)
+  const deleted = await result(getDb().from('expenses').delete().eq('id', expenseId).select('id'), 'delete expense')
+  missing(deleted, 'Expense')
+  await audit('Finance Admin', 'deleted', 'Expense', `Removed expense ${expenseId}`)
   touch()
 }
 
@@ -450,21 +428,21 @@ export async function savePartner(input: { id?: string; name: string; logoUrl?: 
   await assertAdmin()
   const db = getDb()
   if (input.id) {
-    const result = db.prepare('UPDATE partners SET name = ?, logo_url = ? WHERE id = ?').run(input.name, input.logoUrl || null, input.id)
-    missing(result, 'Partner')
-    audit('Super Admin', 'updated', 'Partner', `Updated partner "${input.name}"`)
+    const updated = await result(db.from('partners').update({ name: input.name, logo_url: input.logoUrl || null }).eq('id', input.id).select('id'), 'update partner')
+    missing(updated, 'Partner')
+    await audit('Super Admin', 'updated', 'Partner', `Updated partner "${input.name}"`)
   } else {
-    db.prepare('INSERT INTO partners (id, name, logo_url) VALUES (?, ?, ?)').run(id('p'), input.name, input.logoUrl || null)
-    audit('Super Admin', 'created', 'Partner', `Added partner "${input.name}"`)
+    await result(db.from('partners').insert({ id: id('p'), name: input.name, logo_url: input.logoUrl || null }), 'create partner')
+    await audit('Super Admin', 'created', 'Partner', `Added partner "${input.name}"`)
   }
   touch()
 }
 
 export async function deletePartner(partnerId: string) {
   await assertAdmin()
-  const result = getDb().prepare('DELETE FROM partners WHERE id = ?').run(partnerId)
-  missing(result, 'Partner')
-  audit('Super Admin', 'deleted', 'Partner', `Removed partner ${partnerId}`)
+  const deleted = await result(getDb().from('partners').delete().eq('id', partnerId).select('id'), 'delete partner')
+  missing(deleted, 'Partner')
+  await audit('Super Admin', 'deleted', 'Partner', `Removed partner ${partnerId}`)
   touch()
 }
 
@@ -472,25 +450,27 @@ export async function saveVolunteer(input: { id?: string; name: string; email: s
   await assertAdmin()
   const db = getDb()
   if (input.id) {
-    const result = db.prepare('UPDATE volunteers SET name = ?, email = ?, phone = ?, skills = ?, interest = ?, availability = ?, message = ?, status = ? WHERE id = ?').run(
-      input.name, input.email, input.phone, input.skills, input.interest, input.availability, input.message, input.status, input.id,
-    )
-    missing(result, 'Volunteer')
-    audit('Super Admin', 'updated', 'Volunteer', `Updated volunteer ${input.email}`)
+    const updated = await result(db.from('volunteers').update({
+      name: input.name, email: input.email, phone: input.phone, skills: input.skills,
+      interest: input.interest, availability: input.availability, message: input.message, status: input.status,
+    }).eq('id', input.id).select('id'), 'update volunteer')
+    missing(updated, 'Volunteer')
+    await audit('Super Admin', 'updated', 'Volunteer', `Updated volunteer ${input.email}`)
   } else {
-    db.prepare('INSERT INTO volunteers (id, name, email, phone, skills, interest, availability, message, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
-      id('v'), input.name, input.email, input.phone, input.skills, input.interest, input.availability, input.message, input.status,
-    )
-    audit('Super Admin', 'created', 'Volunteer', `Added volunteer ${input.email}`)
+    await result(db.from('volunteers').insert({
+      id: id('v'), name: input.name, email: input.email, phone: input.phone, skills: input.skills,
+      interest: input.interest, availability: input.availability, message: input.message, status: input.status,
+    }), 'create volunteer')
+    await audit('Super Admin', 'created', 'Volunteer', `Added volunteer ${input.email}`)
   }
   touch()
 }
 
 export async function deleteVolunteer(volunteerId: string) {
   await assertAdmin()
-  const result = getDb().prepare('DELETE FROM volunteers WHERE id = ?').run(volunteerId)
-  missing(result, 'Volunteer')
-  audit('Super Admin', 'deleted', 'Volunteer', `Removed volunteer ${volunteerId}`)
+  const deleted = await result(getDb().from('volunteers').delete().eq('id', volunteerId).select('id'), 'delete volunteer')
+  missing(deleted, 'Volunteer')
+  await audit('Super Admin', 'deleted', 'Volunteer', `Removed volunteer ${volunteerId}`)
   touch()
 }
 
@@ -499,12 +479,14 @@ export async function saveUser(input: { id?: string; name: string; email: string
   const db = getDb()
   try {
     if (input.id) {
-      const result = db.prepare('UPDATE users SET name = ?, email = ?, role = ?, phone = ? WHERE id = ?').run(input.name, input.email, input.role, input.phone || null, input.id)
-      missing(result, 'User')
-      audit('Super Admin', 'updated', 'User', `Updated ${input.email}`)
+      const updated = await result(db.from('users').update({
+        name: input.name, email: input.email, role: input.role, phone: input.phone || null,
+      }).eq('id', input.id).select('id'), 'update user')
+      missing(updated, 'User')
+      await audit('Super Admin', 'updated', 'User', `Updated ${input.email}`)
     } else {
-      db.prepare('INSERT INTO users (id, name, email, role, phone) VALUES (?, ?, ?, ?, ?)').run(id('u'), input.name, input.email, input.role, input.phone || null)
-      audit('Super Admin', 'created', 'User', `Added ${input.email}`)
+      await result(db.from('users').insert({ id: id('u'), name: input.name, email: input.email, role: input.role, phone: input.phone || null }), 'create user')
+      await audit('Super Admin', 'created', 'User', `Added ${input.email}`)
     }
   } catch (error) {
     readable(error, 'The user could not be saved.')
@@ -514,9 +496,9 @@ export async function saveUser(input: { id?: string; name: string; email: string
 
 export async function deleteUser(userId: string) {
   await assertAdmin()
-  const result = getDb().prepare('DELETE FROM users WHERE id = ?').run(userId)
-  missing(result, 'User')
-  audit('Super Admin', 'deleted', 'User', `Removed user ${userId}`)
+  const deleted = await result(getDb().from('users').delete().eq('id', userId).select('id'), 'delete user')
+  missing(deleted, 'User')
+  await audit('Super Admin', 'deleted', 'User', `Removed user ${userId}`)
   touch()
 }
 
@@ -525,25 +507,28 @@ export async function saveNews(input: { id?: string; title: string; excerpt: str
   const db = getDb()
   try {
     if (input.id) {
-      const result = db.prepare('UPDATE news SET title = ?, excerpt = ?, body = ?, category = ?, date = ? WHERE id = ?').run(input.title, input.excerpt, input.body, input.category, input.date, input.id)
-      missing(result, 'Article')
+      const updated = await result(db.from('news').update({
+        title: input.title, excerpt: input.excerpt, body: input.body, category: input.category, date: input.date,
+      }).eq('id', input.id).select('id'), 'update news article')
+      missing(updated, 'Article')
     } else {
-      db.prepare('INSERT INTO news (id, slug, title, excerpt, body, category, date, image) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(
-        id('nw'), slugify(input.title), input.title, input.excerpt, input.body, input.category, input.date, '/school-pesa-hero.png',
-      )
+      await result(db.from('news').insert({
+        id: id('nw'), slug: slugify(input.title), title: input.title, excerpt: input.excerpt, body: input.body,
+        category: input.category, date: input.date, image: '/school-pesa-hero.png',
+      }), 'create news article')
     }
   } catch (error) {
     readable(error, 'The article could not be saved.')
   }
-  audit('Content Manager', input.id ? 'updated' : 'created', 'News', `${input.id ? 'Updated' : 'Added'} "${input.title}"`)
+  await audit('Content Manager', input.id ? 'updated' : 'created', 'News', `${input.id ? 'Updated' : 'Added'} "${input.title}"`)
   touch()
 }
 
 export async function deleteNews(articleId: string) {
   await assertAdmin()
-  const result = getDb().prepare('DELETE FROM news WHERE id = ?').run(articleId)
-  missing(result, 'Article')
-  audit('Content Manager', 'deleted', 'News', `Removed article ${articleId}`)
+  const deleted = await result(getDb().from('news').delete().eq('id', articleId).select('id'), 'delete news article')
+  missing(deleted, 'Article')
+  await audit('Content Manager', 'deleted', 'News', `Removed article ${articleId}`)
   touch()
 }
 
@@ -551,22 +536,25 @@ export async function saveEvent(input: { id?: string; name: string; date: string
   await assertAdmin()
   const db = getDb()
   if (input.id) {
-    const result = db.prepare('UPDATE events SET name = ?, date = ?, time = ?, location = ?, description = ? WHERE id = ?').run(input.name, input.date, input.time, input.location, input.description, input.id)
-    missing(result, 'Event')
+    const updated = await result(db.from('events').update({
+      name: input.name, date: input.date, time: input.time, location: input.location, description: input.description,
+    }).eq('id', input.id).select('id'), 'update event')
+    missing(updated, 'Event')
   } else {
-    db.prepare('INSERT INTO events (id, name, date, time, location, description, image) VALUES (?, ?, ?, ?, ?, ?, ?)').run(
-      id('ev'), input.name, input.date, input.time, input.location, input.description, '/school-pesa-hero.png',
-    )
+    await result(db.from('events').insert({
+      id: id('ev'), name: input.name, date: input.date, time: input.time, location: input.location,
+      description: input.description, image: '/school-pesa-hero.png',
+    }), 'create event')
   }
-  audit('Content Manager', input.id ? 'updated' : 'created', 'Event', `${input.id ? 'Updated' : 'Added'} "${input.name}"`)
+  await audit('Content Manager', input.id ? 'updated' : 'created', 'Event', `${input.id ? 'Updated' : 'Added'} "${input.name}"`)
   touch()
 }
 
 export async function deleteEvent(eventId: string) {
   await assertAdmin()
-  const result = getDb().prepare('DELETE FROM events WHERE id = ?').run(eventId)
-  missing(result, 'Event')
-  audit('Content Manager', 'deleted', 'Event', `Removed event ${eventId}`)
+  const deleted = await result(getDb().from('events').delete().eq('id', eventId).select('id'), 'delete event')
+  missing(deleted, 'Event')
+  await audit('Content Manager', 'deleted', 'Event', `Removed event ${eventId}`)
   touch()
 }
 
@@ -574,27 +562,27 @@ export async function saveFaq(input: { id?: string; question: string; answer: st
   await assertAdmin()
   const db = getDb()
   if (input.id) {
-    const result = db.prepare('UPDATE faqs SET question = ?, answer = ?, topic = ? WHERE id = ?').run(input.question, input.answer, input.topic, input.id)
-    missing(result, 'Question')
+    const updated = await result(db.from('faqs').update({ question: input.question, answer: input.answer, topic: input.topic }).eq('id', input.id).select('id'), 'update FAQ')
+    missing(updated, 'Question')
   } else {
-    db.prepare('INSERT INTO faqs (id, question, answer, topic) VALUES (?, ?, ?, ?)').run(id('f'), input.question, input.answer, input.topic)
+    await result(db.from('faqs').insert({ id: id('f'), question: input.question, answer: input.answer, topic: input.topic }), 'create FAQ')
   }
-  audit('Content Manager', input.id ? 'updated' : 'created', 'FAQ', `${input.id ? 'Updated' : 'Added'} a question`)
+  await audit('Content Manager', input.id ? 'updated' : 'created', 'FAQ', `${input.id ? 'Updated' : 'Added'} a question`)
   touch()
 }
 
 export async function deleteFaq(faqId: string) {
   await assertAdmin()
-  const result = getDb().prepare('DELETE FROM faqs WHERE id = ?').run(faqId)
-  missing(result, 'Question')
-  audit('Content Manager', 'deleted', 'FAQ', `Removed question ${faqId}`)
+  const deleted = await result(getDb().from('faqs').delete().eq('id', faqId).select('id'), 'delete FAQ')
+  missing(deleted, 'Question')
+  await audit('Content Manager', 'deleted', 'FAQ', `Removed question ${faqId}`)
   touch()
 }
 
 export async function deleteAuditLog(logId: string) {
   await assertAdmin()
-  const result = getDb().prepare('DELETE FROM audit_logs WHERE id = ?').run(logId)
-  missing(result, 'Log entry')
+  const deleted = await result(getDb().from('audit_logs').delete().eq('id', logId).select('id'), 'delete audit log')
+  missing(deleted, 'Log entry')
   touch()
 }
 
@@ -612,13 +600,13 @@ type ImpactRow = {
   category: string
 }
 
-function impactRow(updateId: string) {
-  const row = getDb().prepare('SELECT id, email, title, body, status, campaign_id, beneficiary_id, story_id, category FROM donor_updates WHERE id = ?').get(updateId) as ImpactRow | undefined
+async function impactRow(updateId: string) {
+  const row = await result(getDb().from('donor_updates').select('id, email, title, body, status, campaign_id, beneficiary_id, story_id, category').eq('id', updateId).maybeSingle(), 'find impact update') as ImpactRow | null
   if (!row) throw new Error('That update was not found.')
   return row
 }
 
-function impactFields(input: ImpactFields) {
+async function impactFields(input: ImpactFields) {
   const title = input.title.trim()
   const body = input.body.trim()
   if (!title || !body) throw new Error('Add a title and a note.')
@@ -626,109 +614,115 @@ function impactFields(input: ImpactFields) {
   const campaignId = input.campaignId?.trim() || null
   const beneficiaryId = input.beneficiaryId?.trim() || null
   const db = getDb()
-  if (campaignId && !db.prepare('SELECT id FROM campaigns WHERE id = ?').get(campaignId)) throw new Error('That campaign is not on file.')
-  if (beneficiaryId && !db.prepare('SELECT id FROM beneficiaries WHERE id = ?').get(beneficiaryId)) throw new Error('That learner is not on file.')
+  if (campaignId && !await result(db.from('campaigns').select('id').eq('id', campaignId).maybeSingle(), 'check campaign')) throw new Error('That campaign is not on file.')
+  if (beneficiaryId && !await result(db.from('beneficiaries').select('id').eq('id', beneficiaryId).maybeSingle(), 'check learner')) throw new Error('That learner is not on file.')
   return { title, body, category: input.category, campaignId, beneficiaryId }
 }
 
-function notifyDonor(email: string, title: string, body: string) {
-  alertDonor(email, { title, body, kind: 'update', href: '/dashboard/updates' })
+async function notifyDonor(email: string, title: string, body: string) {
+  await alertDonor(email, { title, body, kind: 'update', href: '/dashboard/updates' })
 }
 
-function syncStory(row: ImpactRow, fields: ReturnType<typeof impactFields>, status: 'draft' | 'published') {
+async function syncStory(row: ImpactRow, fields: Awaited<ReturnType<typeof impactFields>>, status: 'draft' | 'published') {
   const db = getDb()
   const campaign = fields.campaignId
-    ? db.prepare('SELECT image FROM campaigns WHERE id = ?').get(fields.campaignId) as { image: string } | undefined
+    ? await result(db.from('campaigns').select('image').eq('id', fields.campaignId).maybeSingle(), 'read campaign image') as { image: string | null } | null
     : undefined
   const learner = fields.beneficiaryId
-    ? db.prepare('SELECT image FROM beneficiaries WHERE id = ?').get(fields.beneficiaryId) as { image: string } | undefined
+    ? await result(db.from('beneficiaries').select('image').eq('id', fields.beneficiaryId).maybeSingle(), 'read learner image') as { image: string | null } | null
     : undefined
-  const authorRow = db.prepare('SELECT name FROM users WHERE lower(email) = ?').get(row.email) as { name: string } | undefined
+  const authorRow = await result(db.from('users').select('name').ilike('email', row.email).maybeSingle(), 'read donor name') as { name: string } | null
   const author = authorRow?.name || 'School Pesa donor'
   const image = campaign?.image || learner?.image || '/school-pesa-hero.png'
   const excerpt = fields.body.replace(/\s+/g, ' ').slice(0, 160)
   const today = new Date().toISOString().slice(0, 10)
   if (row.story_id) {
-    db.prepare('UPDATE stories SET title = ?, excerpt = ?, body = ?, category = ?, author = ?, image = ?, campaign_id = ?, beneficiary_id = ?, status = ? WHERE id = ?').run(
-      fields.title, excerpt, fields.body, fields.category, author, image, fields.campaignId, fields.beneficiaryId, status, row.story_id,
-    )
+    const updated = await result(db.from('stories').update({
+      title: fields.title, excerpt, body: fields.body, category: fields.category, author, image,
+      campaign_id: fields.campaignId, beneficiary_id: fields.beneficiaryId, status,
+    }).eq('id', row.story_id).select('id'), 'update impact story')
+    missing(updated, 'Story')
     return row.story_id
   }
   const storyId = id('st')
   let slug = slugify(fields.title)
-  if (db.prepare('SELECT id FROM stories WHERE slug = ?').get(slug)) slug = `${slug}-${storyId.slice(-6)}`
-  db.prepare(`INSERT INTO stories (id, slug, title, excerpt, body, category, author, date, image, gallery, campaign_id, beneficiary_id, status, views)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', ?, ?, ?, 0)`).run(
-    storyId, slug, fields.title, excerpt, fields.body, fields.category, author, today, image, fields.campaignId, fields.beneficiaryId, status,
-  )
+  if (await result(db.from('stories').select('id').eq('slug', slug).maybeSingle(), 'check story address')) slug = `${slug}-${storyId.slice(-6)}`
+  await result(db.from('stories').insert({
+    id: storyId, slug, title: fields.title, excerpt, body: fields.body, category: fields.category, author,
+    date: today, image, gallery: [], campaign_id: fields.campaignId, beneficiary_id: fields.beneficiaryId, status, views: 0,
+  }), 'create impact story')
   return storyId
 }
 
 export async function saveImpactUpdate(updateId: string, input: ImpactFields) {
   await assertAdmin()
-  const row = impactRow(updateId)
-  const fields = impactFields(input)
-  const storyId = row.story_id && row.status === 'published' ? syncStory(row, fields, 'published') : row.story_id
-  getDb().prepare('UPDATE donor_updates SET title = ?, body = ?, category = ?, campaign_id = ?, beneficiary_id = ?, story_id = ? WHERE id = ?').run(
-    fields.title, fields.body, fields.category, fields.campaignId, fields.beneficiaryId, storyId, updateId,
-  )
-  audit('Content Manager', 'updated', 'Impact update', `Edited “${fields.title}” from ${row.email}`)
+  const row = await impactRow(updateId)
+  const fields = await impactFields(input)
+  const storyId = row.story_id && row.status === 'published' ? await syncStory(row, fields, 'published') : row.story_id
+  const updated = await result(getDb().from('donor_updates').update({
+    title: fields.title, body: fields.body, category: fields.category, campaign_id: fields.campaignId,
+    beneficiary_id: fields.beneficiaryId, story_id: storyId,
+  }).eq('id', updateId).select('id'), 'update impact update')
+  missing(updated, 'Impact update')
+  await audit('Content Manager', 'updated', 'Impact update', `Edited “${fields.title}” from ${row.email}`)
   touch()
 }
 
 export async function requestImpactChanges(updateId: string, note: string) {
   await assertAdmin()
-  const row = impactRow(updateId)
+  const row = await impactRow(updateId)
   const message = note.trim()
   if (!message) throw new Error('Tell the donor what to change.')
   if (row.status === 'draft') throw new Error('This update has not been submitted.')
   const db = getDb()
-  if (row.story_id) db.prepare("UPDATE stories SET status = 'draft' WHERE id = ?").run(row.story_id)
-  db.prepare("UPDATE donor_updates SET status = 'changes', review_note = ? WHERE id = ?").run(message, updateId)
-  notifyDonor(row.email, 'Update needs changes', `“${row.title}” was sent back: ${message}`)
-  audit('Content Manager', 'reviewed', 'Impact update', `Requested changes on “${row.title}”`)
+  if (row.story_id) await result(db.from('stories').update({ status: 'draft' }).eq('id', row.story_id), 'unpublish impact story')
+  await result(db.from('donor_updates').update({ status: 'changes', review_note: message }).eq('id', updateId), 'request impact update changes')
+  await notifyDonor(row.email, 'Update needs changes', `“${row.title}” was sent back: ${message}`)
+  await audit('Content Manager', 'reviewed', 'Impact update', `Requested changes on “${row.title}”`)
   touch()
 }
 
 export async function declineImpactUpdate(updateId: string, note: string) {
   await assertAdmin()
-  const row = impactRow(updateId)
+  const row = await impactRow(updateId)
   const message = note.trim()
   if (!message) throw new Error('Add a reason for declining this update.')
   if (row.status === 'draft') throw new Error('This update has not been submitted.')
   const db = getDb()
-  if (row.story_id) db.prepare("UPDATE stories SET status = 'draft' WHERE id = ?").run(row.story_id)
-  db.prepare("UPDATE donor_updates SET status = 'declined', review_note = ? WHERE id = ?").run(message, updateId)
-  notifyDonor(row.email, 'Update was not published', `“${row.title}” was declined: ${message}`)
-  audit('Content Manager', 'declined', 'Impact update', `Declined “${row.title}”`)
+  if (row.story_id) await result(db.from('stories').update({ status: 'draft' }).eq('id', row.story_id), 'unpublish impact story')
+  await result(db.from('donor_updates').update({ status: 'declined', review_note: message }).eq('id', updateId), 'decline impact update')
+  await notifyDonor(row.email, 'Update was not published', `“${row.title}” was declined: ${message}`)
+  await audit('Content Manager', 'declined', 'Impact update', `Declined “${row.title}”`)
   touch()
 }
 
 export async function publishImpactUpdate(updateId: string, input: ImpactFields) {
   await assertAdmin()
-  const row = impactRow(updateId)
+  const row = await impactRow(updateId)
   if (row.status === 'draft') throw new Error('Wait until the donor submits this update.')
-  const fields = impactFields(input)
-  const storyId = syncStory({ ...row, story_id: row.story_id }, fields, 'published')
-  getDb().prepare("UPDATE donor_updates SET title = ?, body = ?, category = ?, campaign_id = ?, beneficiary_id = ?, story_id = ?, status = 'published', review_note = '' WHERE id = ?").run(
-    fields.title, fields.body, fields.category, fields.campaignId, fields.beneficiaryId, storyId, updateId,
-  )
-  notifyDonor(row.email, 'Your update is published', `“${fields.title}” is now a public story.`)
-  alertFollowers({ campaignId: fields.campaignId, beneficiaryId: fields.beneficiaryId, title: 'New impact update', body: `“${fields.title}” was published.`, href: '/dashboard/updates', exceptEmail: row.email })
-  audit('Content Manager', 'published', 'Impact update', `Published “${fields.title}” from ${row.email}`)
+  const fields = await impactFields(input)
+  const storyId = await syncStory({ ...row, story_id: row.story_id }, fields, 'published')
+  const updated = await result(getDb().from('donor_updates').update({
+    title: fields.title, body: fields.body, category: fields.category, campaign_id: fields.campaignId,
+    beneficiary_id: fields.beneficiaryId, story_id: storyId, status: 'published', review_note: '',
+  }).eq('id', updateId).select('id'), 'publish impact update')
+  missing(updated, 'Impact update')
+  await notifyDonor(row.email, 'Your update is published', `“${fields.title}” is now a public story.`)
+  await alertFollowers({ campaignId: fields.campaignId, beneficiaryId: fields.beneficiaryId, title: 'New impact update', body: `“${fields.title}” was published.`, href: '/dashboard/updates', exceptEmail: row.email })
+  await audit('Content Manager', 'published', 'Impact update', `Published “${fields.title}” from ${row.email}`)
   touch()
   revalidatePath('/stories')
 }
 
 export async function unpublishImpactUpdate(updateId: string) {
   await assertAdmin()
-  const row = impactRow(updateId)
+  const row = await impactRow(updateId)
   if (row.status !== 'published' || !row.story_id) throw new Error('This update is not published.')
   const db = getDb()
-  db.prepare("UPDATE stories SET status = 'draft' WHERE id = ?").run(row.story_id)
-  db.prepare("UPDATE donor_updates SET status = 'submitted' WHERE id = ?").run(updateId)
-  notifyDonor(row.email, 'Update unpublished', `“${row.title}” was taken off the public site and is back in review.`)
-  audit('Content Manager', 'unpublished', 'Impact update', `Unpublished “${row.title}”`)
+  await result(db.from('stories').update({ status: 'draft' }).eq('id', row.story_id), 'unpublish impact story')
+  await result(db.from('donor_updates').update({ status: 'submitted' }).eq('id', updateId), 'return impact update to review')
+  await notifyDonor(row.email, 'Update unpublished', `“${row.title}” was taken off the public site and is back in review.`)
+  await audit('Content Manager', 'unpublished', 'Impact update', `Unpublished “${row.title}”`)
   touch()
   revalidatePath('/stories')
 }

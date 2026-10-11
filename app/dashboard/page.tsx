@@ -4,7 +4,7 @@ import { StatusPill } from '@/components/admin/ui'
 import { CampaignProgress } from '@/components/campaign-progress'
 import { NotificationActions, ReminderForm } from '@/components/dashboard/notification-board'
 import { donorCampaigns, donorChildren, donorDonations, donorNotifications } from '@/lib/donor'
-import { getBeneficiary, getCampaignById } from '@/lib/data'
+import { getBeneficiaries, getCampaigns } from '@/lib/data'
 import { formatDate, formatUGX, percentOf } from '@/lib/format'
 import { currentAccount } from '@/lib/supabase/session'
 
@@ -21,13 +21,21 @@ function kampalaMonth() {
 }
 
 export default async function Page() {
-  const account = await currentAccount()
+  const [account, allCampaigns, allBeneficiaries] = await Promise.all([
+    currentAccount(),
+    getCampaigns(),
+    getBeneficiaries(),
+  ])
   const email = account?.email ?? ''
   const name = account?.name ?? 'Donor'
-  const donations = email ? donorDonations(email) : []
-  const campaigns = email ? donorCampaigns(email) : []
-  const children = email ? donorChildren(email) : []
-  const notifications = email ? donorNotifications(email) : []
+  const [donations, campaigns, children, notifications] = email
+    ? await Promise.all([
+        donorDonations(email),
+        donorCampaigns(email),
+        donorChildren(email),
+        donorNotifications(email),
+      ])
+    : [[], [], [], []]
   const confirmed = donations.filter((item) => item.status === 'Successful')
   const total = confirmed.reduce((sum, item) => sum + item.amount, 0)
   const monthKey = kampalaMonth()
@@ -92,8 +100,8 @@ export default async function Page() {
           ) : (
             <ul>
               {recent.map((item) => {
-                const campaign = item.campaignId ? getCampaignById(item.campaignId) : undefined
-                const child = item.beneficiaryId ? getBeneficiary(item.beneficiaryId) : undefined
+                const campaign = item.campaignId ? allCampaigns.find((entry) => entry.id === item.campaignId) : undefined
+                const child = item.beneficiaryId ? allBeneficiaries.find((entry) => entry.id === item.beneficiaryId) : undefined
                 const title = campaign?.title ?? (child ? `Support for ${child.displayName}` : 'Education support')
                 const href = item.status === 'Successful' ? '/dashboard/receipts' : '/dashboard/donations'
                 return (

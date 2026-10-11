@@ -12,6 +12,6 @@ export async function POST(request: Request) {
   } catch {
     return Response.json({ ok: false }, { status: 400 })
   }
-  applyPaymentUpdate(payload)
+  await applyPaymentUpdate(payload)
   return Response.json({ ok: true })
 }

@@ -6,6 +6,12 @@ import { formatUGX } from '@/lib/format'
 import { alertDonor } from '@/lib/notify'
 import type { CheckoutDraft, DonationStatus } from '@/lib/types'
 
+async function result<T>(operation: PromiseLike<{ data: T; error: { message: string } | null }>, context: string): Promise<T> {
+  const { data, error } = await operation
+  if (error) throw new Error(`Could not ${context}: ${error.message}`)
+  return data
+}
+
 function gateway() {
   const base = process.env.PAYTOTA_BASE_URL?.replace(/\/$/, '')
   const secret = process.env.PAYTOTA_SECRET_KEY
@@ -118,30 +124,18 @@ export async function startDonation(draft: CheckoutDraft) {
   const createdAt = new Date().toISOString()
   const donationId = id('d')
   const db = getDb()
-  db.prepare(`INSERT INTO donations (id, donor_name, anonymous, email, phone, amount, frequency, campaign_id, beneficiary_id, support_target, method, transaction_id, date, status, message, external_id, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
-    donationId,
-    draft.anonymous ? 'Anonymous' : donorName,
-    draft.anonymous ? 1 : 0,
-    donorEmail,
-    phone,
-    draft.amount,
-    draft.frequency,
-    draft.campaignId ?? null,
-    draft.beneficiaryId ?? null,
-    draft.supportTarget,
-    'Mobile money',
-    reference,
-    today,
-    'Processing',
-    draft.message || null,
-    created.id,
-    createdAt,
-  )
-  db.prepare('INSERT INTO transactions (id, donation_id, provider, reference, amount, status, date) VALUES (?, ?, ?, ?, ?, ?, ?)').run(
-    id('pt'), donationId, 'Mobile money', reference, draft.amount, 'Processing', today,
-  )
-  alertDonor(donorEmail, {
+  await result(db.from('donations').insert({
+    id: donationId, donor_name: draft.anonymous ? 'Anonymous' : donorName, anonymous: draft.anonymous,
+    email: donorEmail, phone, amount: draft.amount, frequency: draft.frequency,
+    campaign_id: draft.campaignId ?? null, beneficiary_id: draft.beneficiaryId ?? null,
+    support_target: draft.supportTarget, method: 'Mobile money', transaction_id: reference,
+    date: today, status: 'Processing', message: draft.message || null, external_id: created.id, created_at: createdAt,
+  }), 'record checkout donation')
+  await result(db.from('transactions').insert({
+    id: id('pt'), donation_id: donationId, provider: 'Mobile money', reference,
+    amount: draft.amount, status: 'Processing', date: today,
+  }), 'record checkout transaction')
+  await alertDonor(donorEmail, {
     title: 'Payment prompt sent',
     body: `Approve ${formatUGX(draft.amount)} on your phone. Reference ${reference}.`,
     kind: 'gift',
@@ -162,38 +156,33 @@ function mapStatus(status: string, eventType: string): DonationStatus | null {
   return null
 }
 
-export function applyPaymentUpdate(payload: { id?: string; reference?: string; status?: string; event_type?: string }) {
+export async function applyPaymentUpdate(payload: { id?: string; reference?: string; status?: string; event_type?: string }) {
   const next = mapStatus(payload.status || '', payload.event_type || '')
   if (!next) return { updated: false }
   const db = getDb()
-  const row = db.prepare('SELECT id, amount, campaign_id, beneficiary_id, status, transaction_id, email FROM donations WHERE transaction_id = ? OR external_id = ?').get(payload.reference ?? '', payload.id ?? '') as {
+  const row = await result((payload.reference
+    ? db.from('donations').select('id, amount, status, transaction_id, external_id, email').eq('transaction_id', payload.reference).maybeSingle()
+    : db.from('donations').select('id, amount, status, transaction_id, external_id, email').eq('external_id', payload.id ?? '').maybeSingle()), 'find callback donation') as {
     id: string
     amount: number
-    campaign_id: string | null
-    beneficiary_id: string | null
     status: string
     transaction_id: string
+    external_id: string | null
     email: string | null
-  } | undefined
-  if (!row || row.status === next) return { updated: false, reference: row?.transaction_id }
-  const wasSuccessful = row.status === 'Successful'
-  db.prepare('UPDATE donations SET status = ? WHERE id = ?').run(next, row.id)
-  db.prepare('UPDATE transactions SET status = ? WHERE donation_id = ?').run(next, row.id)
-  if (next === 'Successful' && !wasSuccessful) {
-    if (row.campaign_id) db.prepare('UPDATE campaigns SET raised = raised + ?, donors = donors + 1 WHERE id = ?').run(row.amount, row.campaign_id)
-    if (row.beneficiary_id) db.prepare('UPDATE beneficiaries SET raised = raised + ? WHERE id = ?').run(row.amount, row.beneficiary_id)
-    db.prepare('UPDATE impact_stats SET funds_raised = funds_raised + ?, this_month = this_month + ? WHERE id = 1').run(row.amount, row.amount)
-  }
-  if (wasSuccessful && next !== 'Successful') {
-    if (row.campaign_id) db.prepare('UPDATE campaigns SET raised = MAX(raised - ?, 0), donors = MAX(donors - 1, 0) WHERE id = ?').run(row.amount, row.campaign_id)
-    if (row.beneficiary_id) db.prepare('UPDATE beneficiaries SET raised = MAX(raised - ?, 0) WHERE id = ?').run(row.amount, row.beneficiary_id)
-    db.prepare('UPDATE impact_stats SET funds_raised = MAX(funds_raised - ?, 0) WHERE id = 1').run(row.amount)
-  }
-  if (row.email) {
+  } | null
+  const matchedById = !row && payload.id
+    ? await result(db.from('donations').select('id, amount, status, transaction_id, external_id, email').eq('external_id', payload.id).maybeSingle(), 'find callback donation by provider id') as typeof row
+    : null
+  const donation = row ?? matchedById
+  if (!donation || donation.status === next) return { updated: false, reference: donation?.transaction_id }
+  const rpcReference = donation.transaction_id || donation.external_id || payload.reference || payload.id || ''
+  const status = await result(db.rpc('apply_payment_status', { p_reference: rpcReference, p_status: next }), 'apply payment status')
+  if (status === 'missing') return { updated: false }
+  if (donation.email) {
     const confirmed = next === 'Successful'
-    alertDonor(row.email, {
+    await alertDonor(donation.email, {
       title: confirmed ? 'Gift confirmed' : `Gift ${next.toLowerCase()}`,
-      body: confirmed ? `${formatUGX(row.amount)} is confirmed. Reference ${row.transaction_id}.` : `${formatUGX(row.amount)} is now ${next.toLowerCase()}. Reference ${row.transaction_id}.`,
+      body: confirmed ? `${formatUGX(donation.amount)} is confirmed. Reference ${donation.transaction_id}.` : `${formatUGX(donation.amount)} is now ${next.toLowerCase()}. Reference ${donation.transaction_id}.`,
       kind: 'gift',
       href: confirmed ? '/dashboard/receipts' : '/dashboard/donations',
     })
@@ -203,12 +192,12 @@ export function applyPaymentUpdate(payload: { id?: string; reference?: string; s
   revalidatePath('/admin/donations')
   revalidatePath('/impact')
   revalidatePath('/campaigns')
-  return { updated: true, reference: row.transaction_id, status: next }
+  return { updated: true, reference: donation.transaction_id, status: next }
 }
 
-export function paymentStatus(reference: string) {
-  expireStaleDonations()
-  const row = getDb().prepare('SELECT status, amount, frequency FROM donations WHERE transaction_id = ?').get(reference) as { status: string; amount: number; frequency: string } | undefined
+export async function paymentStatus(reference: string) {
+  await expireStaleDonations()
+  const row = await result(getDb().from('donations').select('status, amount, frequency').eq('transaction_id', reference).maybeSingle(), 'read payment status') as { status: string; amount: number; frequency: string } | null
   if (!row) return null
   return { reference, status: row.status, amount: row.amount, frequency: row.frequency }
 }

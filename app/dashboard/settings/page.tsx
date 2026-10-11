@@ -17,7 +17,7 @@ export default async function Page() {
         createdAt: account.createdAt,
         provider: account.provider,
       }}
-      preferences={donorPreferences(account.email)}
+      preferences={await donorPreferences(account.email)}
     />
   )
 }

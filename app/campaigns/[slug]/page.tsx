@@ -10,24 +10,27 @@ import { Button } from '@/components/ui/button'
 import { getBeneficiary, getCampaignBySlug, getCampaigns } from '@/lib/data'
 import { formatDate, formatUGX, percentOf } from '@/lib/format'
 
-export function generateStaticParams() {
-  return getCampaigns().map((campaign) => ({ slug: campaign.slug }))
+export async function generateStaticParams() {
+  return (await getCampaigns()).map((campaign) => ({ slug: campaign.slug }))
 }
 
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }) {
-  const campaign = getCampaignBySlug((await params).slug)
+  const campaign = await getCampaignBySlug((await params).slug)
   return { title: campaign?.seoTitle ?? 'Campaign', description: campaign?.seoDescription }
 }
 
 export default async function Page({ params }: { params: Promise<{ slug: string }> }) {
-  const campaign = getCampaignBySlug((await params).slug)
+  const campaign = await getCampaignBySlug((await params).slug)
   if (!campaign) notFound()
-  const beneficiary = campaign.beneficiaryId ? getBeneficiary(campaign.beneficiaryId) : undefined
+  const [beneficiary, allCampaigns] = await Promise.all([
+    campaign.beneficiaryId ? getBeneficiary(campaign.beneficiaryId) : undefined,
+    getCampaigns(),
+  ])
   const percent = percentOf(campaign.raised, campaign.target)
   const remaining = Math.max(campaign.target - campaign.raised, 0)
   const days = daysUntil(campaign.deadline)
   const photos = [...new Set(campaign.gallery)].filter((src) => src !== campaign.image)
-  const related = getCampaigns().filter((item) => item.slug !== campaign.slug && item.status === 'active').slice(0, 2)
+  const related = allCampaigns.filter((item) => item.slug !== campaign.slug && item.status === 'active').slice(0, 2)
   const closed = campaign.status === 'completed' || days < 0
 
   return (

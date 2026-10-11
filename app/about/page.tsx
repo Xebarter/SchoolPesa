@@ -16,9 +16,8 @@ const sections = [
 
 export const metadata = { title: 'About' }
 
-export default function Page() {
-  const partners = getPartners()
-  const users = getUsers()
+export default async function Page() {
+  const [partners, users] = await Promise.all([getPartners(), getUsers()])
   return (
     <SiteShell>
       <Band>

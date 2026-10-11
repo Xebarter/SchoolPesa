@@ -3,6 +3,7 @@ import { getEvents, getFaqs, getNews } from '@/lib/data'
 
 export const metadata = { title: 'Admin content' }
 
-export default function Page() {
-  return <ContentBoard news={getNews()} events={getEvents()} faqs={getFaqs()} />
+export default async function Page() {
+  const [news, events, faqs] = await Promise.all([getNews(), getEvents(), getFaqs()])
+  return <ContentBoard news={news} events={events} faqs={faqs} />
 }
